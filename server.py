@@ -28,6 +28,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 ROOT = Path(__file__).resolve().parent
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8000"))
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://taifex-report-dashboard.onrender.com").rstrip("/")
 TAIFEX = "https://www.taifex.com.tw"
 BQ888 = "https://www.bq888.taifex.com.tw"
 
@@ -1673,7 +1674,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         "meta": {
             "date": base_date,
             "generatedAt": datetime.now().isoformat(timespec="seconds"),
-            "reportUrl": report_url or "",
+            "reportUrl": report_url or PUBLIC_BASE_URL,
         },
         "changeOverview": futures_delta_overview,
         "tables": {
@@ -1937,7 +1938,10 @@ class Handler(SimpleHTTPRequestHandler):
             host = self.headers.get("Host", f"127.0.0.1:{PORT}")
             scheme = "http"
             report_query = f"?date={urllib.parse.quote(report_date)}" if report_date else ""
-            report_url = f"{scheme}://{host}/{report_query}"
+            if "onrender.com" in host:
+                report_url = f"{PUBLIC_BASE_URL}/{report_query}" if report_query else PUBLIC_BASE_URL
+            else:
+                report_url = f"{scheme}://{host}/{report_query}"
             payload = build_report(report_date, report_url)
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -1960,7 +1964,10 @@ class Handler(SimpleHTTPRequestHandler):
             report_date = params.get("date", [None])[0]
             host = self.headers.get("Host", f"127.0.0.1:{PORT}")
             report_query = f"?date={urllib.parse.quote(report_date)}" if report_date else ""
-            report_url = f"http://{host}/{report_query}"
+            if "onrender.com" in host:
+                report_url = f"{PUBLIC_BASE_URL}/{report_query}" if report_query else PUBLIC_BASE_URL
+            else:
+                report_url = f"http://{host}/{report_query}"
             payload = build_report(report_date, report_url)
             pdf_data = build_report_pdf(payload)
             filename_date = payload["meta"]["date"].replace("/", "-")

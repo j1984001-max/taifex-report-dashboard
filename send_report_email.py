@@ -35,7 +35,7 @@ def build_email_body(report: dict, pdf_url: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Send TAIFEX report email with PDF attachment.")
-    parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Dashboard base URL")
+    parser.add_argument("--base-url", default=os.environ.get("PUBLIC_BASE_URL", "https://taifex-report-dashboard.onrender.com"), help="Dashboard base URL")
     parser.add_argument("--date", default="", help="Report date in YYYY/MM/DD")
     parser.add_argument("--to", default=os.environ.get("GMAIL_TO", ""))
     parser.add_argument("--from-addr", default=os.environ.get("GMAIL_USER", ""))
