@@ -160,14 +160,27 @@ def save_cached_report(key: str, report: dict[str, Any], pdf_data: bytes | None 
         }
 
 
-def cached_report(report_date: str | None, report_url: str) -> tuple[dict[str, Any], str]:
+def invalidate_cached_report(key: str) -> None:
+    json_path, pdf_path = cache_paths(key)
+    with REPORT_CACHE_LOCK:
+        REPORT_CACHE_MEMORY.pop(key, None)
+    if json_path.exists():
+        json_path.unlink()
+    if pdf_path.exists():
+        pdf_path.unlink()
+
+
+def cached_report(report_date: str | None, report_url: str, force_refresh: bool = False) -> tuple[dict[str, Any], str]:
     effective_date = report_date or latest_business_day()
     key = cache_key(effective_date, report_url)
     ttl = cache_ttl_for_date(effective_date)
-    cached = load_cached_report(key, ttl)
-    if cached:
-        report, _ = cached
-        return report, key
+    if force_refresh:
+        invalidate_cached_report(key)
+    else:
+        cached = load_cached_report(key, ttl)
+        if cached:
+            report, _ = cached
+            return report, key
     report = build_report(effective_date, report_url)
     save_cached_report(key, report)
     return report, key
@@ -2008,6 +2021,7 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             params = urllib.parse.parse_qs(query)
             report_date = params.get("date", [None])[0]
+            force_refresh = params.get("refresh", ["0"])[0] == "1"
             host = self.headers.get("Host", f"127.0.0.1:{PORT}")
             scheme = "http"
             report_query = f"?date={urllib.parse.quote(report_date)}" if report_date else ""
@@ -2015,7 +2029,7 @@ class Handler(SimpleHTTPRequestHandler):
                 report_url = f"{PUBLIC_BASE_URL}/{report_query}" if report_query else PUBLIC_BASE_URL
             else:
                 report_url = f"{scheme}://{host}/{report_query}"
-            payload, _ = cached_report(report_date, report_url)
+            payload, _ = cached_report(report_date, report_url, force_refresh=force_refresh)
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -2035,13 +2049,14 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             params = urllib.parse.parse_qs(query)
             report_date = params.get("date", [None])[0]
+            force_refresh = params.get("refresh", ["0"])[0] == "1"
             host = self.headers.get("Host", f"127.0.0.1:{PORT}")
             report_query = f"?date={urllib.parse.quote(report_date)}" if report_date else ""
             if "onrender.com" in host:
                 report_url = f"{PUBLIC_BASE_URL}/{report_query}" if report_query else PUBLIC_BASE_URL
             else:
                 report_url = f"http://{host}/{report_query}"
-            payload, key = cached_report(report_date, report_url)
+            payload, key = cached_report(report_date, report_url, force_refresh=force_refresh)
             ttl = cache_ttl_for_date(payload["meta"]["date"])
             cached = load_cached_report(key, ttl)
             pdf_data = cached[1] if cached else None

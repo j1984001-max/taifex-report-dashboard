@@ -1229,13 +1229,19 @@
             datePicker.value = `${y}-${m}-${d}`;
         }
 
-        async function loadReport() {
+        async function loadReport(forceRefresh = false) {
             refreshBtn.disabled = true;
             errorBox.classList.add("hidden");
             try {
                 const date = currentSelectedDate();
-                showLoadingState(date ? `正在抓取 ${date.replaceAll("-", "/")} 的歷史資料，請稍候。` : "正在抓取最近一個營業日資料，請稍候。");
-                const query = date ? `?date=${encodeURIComponent(date.replaceAll("-", "/"))}` : "";
+                const loadingText = forceRefresh
+                    ? `正在重新抓取${date ? ` ${date.replaceAll("-", "/")}` : "最近一個營業日"}資料，將略過快取。`
+                    : (date ? `正在抓取 ${date.replaceAll("-", "/")} 的歷史資料，請稍候。` : "正在抓取最近一個營業日資料，請稍候。");
+                showLoadingState(loadingText);
+                const params = new URLSearchParams();
+                if (date) params.set("date", date.replaceAll("-", "/"));
+                if (forceRefresh) params.set("refresh", "1");
+                const query = params.toString() ? `?${params.toString()}` : "";
                 const response = await fetch(`/api/report${query}`, { cache: "no-store" });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
@@ -1252,8 +1258,8 @@
         document.getElementById("themeBtn").addEventListener("click", () => {
             document.documentElement.classList.toggle("dark");
         });
-        refreshBtn.addEventListener("click", loadReport);
-        datePicker.addEventListener("change", loadReport);
+        refreshBtn.addEventListener("click", () => loadReport(true));
+        datePicker.addEventListener("change", () => loadReport());
         prevDayBtn.addEventListener("click", () => shiftDate(-1));
         nextDayBtn.addEventListener("click", () => shiftDate(1));
         pdfBtn.addEventListener("click", () => {
