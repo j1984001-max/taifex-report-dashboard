@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: taifex-report-dashboard
+    env: docker
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /

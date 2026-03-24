@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台指期權籌碼報告</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { transition: background-color 0.2s, color 0.2s; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 14px; border-bottom: 1px solid #e2e8f0; text-align: right; vertical-align: top; }
+        th:first-child, td:first-child { text-align: left; }
+        th { background: #f8fafc; color: #475569; font-weight: 700; }
+        tr:hover { background: #f8fafc; }
+        .dark th, .dark td { border-bottom-color: #334155; }
+        .dark th { background: #0f172a; color: #cbd5e1; }
+        .dark tr:hover { background: #162235; }
+        .num-pos { color: #dc2626; font-weight: 700; }
+        .num-neg { color: #16a34a; font-weight: 700; }
+        .section-card { border: 1px solid #e2e8f0; }
+        .dark .section-card { border-color: #1e293b; }
+        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+        .copy-block { white-space: pre-wrap; line-height: 1.7; }
+        .shared-zone {
+            border-radius: 16px;
+            padding: 16px;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        .dark .shared-zone {
+            border-color: #334155;
+            background: #0f172a;
+        }
+        .sr-chart { display: flex; flex-direction: column; gap: 8px; }
+        .sr-chart-card { border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px; background: #fff; }
+        .dark .sr-chart-card { border-color: #334155; background: #020617; }
+        .sr-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+        .sr-summary-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 16px;
+            background: #ffffff;
+            cursor: pointer;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+        .sr-summary-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+        }
+        .dark .sr-summary-card {
+            border-color: #334155;
+            background: #020617;
+        }
+        .sr-summary-card.active {
+            border-color: #0ea5e9;
+            box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.15);
+        }
+        .sr-summary-card h4 {
+            font-size: 18px;
+            font-weight: 900;
+            margin-bottom: 10px;
+        }
+        .sr-summary-meta {
+            font-size: 13px;
+            line-height: 1.8;
+            color: #475569;
+        }
+        .dark .sr-summary-meta { color: #cbd5e1; }
+        .sr-view {
+            margin-top: 18px;
+        }
+        .sr-tab-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .sr-tab-btn {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #334155;
+            padding: 10px 14px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+        .dark .sr-tab-btn {
+            border-color: #475569;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        .sr-tab-btn.active {
+            border-color: #0ea5e9;
+            background: #e0f2fe;
+            color: #0369a1;
+        }
+        .dark .sr-tab-btn.active {
+            background: #082f49;
+            color: #bae6fd;
+        }
+        .sr-panel { display: none; }
+        .sr-panel.active { display: block; }
+        .date-input {
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 8px 10px;
+            font-size: 14px;
+            font-weight: 700;
+            background: white;
+            color: #0f172a;
+        }
+        .share-link {
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 8px 10px;
+            font-size: 13px;
+            background: #fff;
+            color: #0f172a;
+            min-width: 220px;
+            max-width: 360px;
+        }
+        .dark .share-link {
+            border-color: #475569;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        .nav-btn {
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #0f172a;
+            font-size: 14px;
+            font-weight: 800;
+        }
+        .dark .nav-btn {
+            border-color: #475569;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        .dark .date-input {
+            border-color: #475569;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        .nav-shell {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-height: 64px;
+            padding-top: 10px;
+            padding-bottom: 10px;
+        }
+        .nav-title {
+            min-width: 0;
+            flex: 1 1 320px;
+        }
+        .nav-controls {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+            flex: 1 1 720px;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .share-card {
+            display: none;
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: 16px;
+            border: 1px solid #dbeafe;
+            background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+        }
+        .dark .share-card {
+            border-color: #1d4ed8;
+            background: linear-gradient(135deg, rgba(12, 74, 110, 0.45) 0%, rgba(15, 23, 42, 0.95) 100%);
+        }
+        .share-card-label {
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            color: #1d4ed8;
+        }
+        .dark .share-card-label { color: #93c5fd; }
+        .share-card-url {
+            display: block;
+            margin-top: 6px;
+            word-break: break-all;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #0f172a;
+        }
+        .dark .share-card-url { color: #e2e8f0; }
+        .section-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .meta-pill {
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .dark .meta-pill {
+            border-color: #334155;
+            background: #0f172a;
+        }
+        .table-wrap {
+            overflow-x: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            background: #fff;
+            -webkit-overflow-scrolling: touch;
+        }
+        .dark .table-wrap {
+            border-color: #334155;
+            background: #020617;
+        }
+        .table-wrap table {
+            min-width: 720px;
+        }
+        .copy-block {
+            white-space: pre-wrap;
+            line-height: 1.7;
+            overflow-wrap: anywhere;
+        }
+        .loading-card {
+            border: 1px dashed #93c5fd;
+            border-radius: 20px;
+            padding: 28px 22px;
+            background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+        }
+        .dark .loading-card {
+            border-color: #1d4ed8;
+            background: linear-gradient(135deg, rgba(12, 74, 110, 0.35) 0%, rgba(15, 23, 42, 0.95) 100%);
+        }
+        .loading-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: #0ea5e9;
+            display: inline-block;
+            animation: pulseDot 1s ease-in-out infinite;
+        }
+        .loading-dot:nth-child(2) { animation-delay: 0.15s; }
+        .loading-dot:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes pulseDot {
+            0%, 100% { transform: scale(0.8); opacity: 0.5; }
+            50% { transform: scale(1); opacity: 1; }
+        }
+        .sr-row {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) 110px minmax(220px, 1fr);
+            gap: 14px;
+            align-items: center;
+        }
+        .sr-side { position: relative; height: 42px; display: flex; align-items: center; }
+        .sr-side.call { justify-content: flex-end; }
+        .sr-side.put { justify-content: flex-start; }
+        .sr-bar {
+            position: absolute;
+            top: 6px;
+            bottom: 6px;
+            opacity: 0.7;
+        }
+        .sr-side.call .sr-bar { right: 0; background: #f38a8f; }
+        .sr-side.put .sr-bar { left: 0; background: #8dd675; }
+        .sr-label {
+            position: relative;
+            z-index: 1;
+            font-size: 13px;
+            line-height: 1.2;
+            padding: 0 10px;
+            white-space: nowrap;
+        }
+        .sr-strike {
+            text-align: center;
+            font-size: 18px;
+            font-weight: 800;
+            color: #5b6472;
+            padding: 7px 8px;
+            border-radius: 0;
+        }
+        .dark .sr-strike { color: #d5d9e0; }
+        .sr-strike.atm {
+            background: #6b7280;
+            color: white;
+            border-radius: 0;
+        }
+        .sr-strike.support {
+            background: #dcfce7;
+            color: #15803d;
+        }
+        .sr-strike.resistance {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+        .dark .sr-strike.support {
+            background: #14532d;
+            color: #bbf7d0;
+        }
+        .dark .sr-strike.resistance {
+            background: #7f1d1d;
+            color: #fecaca;
+        }
+        .sr-change-pos { color: #dc2626; font-weight: 700; }
+        .sr-change-neg { color: #16a34a; font-weight: 700; }
+        .sr-note {
+            font-size: 11px;
+            display: inline-block;
+            border: 2px dashed #fb923c;
+            padding: 3px 8px;
+            margin-left: 8px;
+        }
+        @media (max-width: 900px) {
+            .sr-summary-grid { grid-template-columns: 1fr; }
+            .sr-chart-card { padding: 14px; }
+            .sr-row {
+                grid-template-columns: 1fr;
+                gap: 8px;
+                padding: 12px;
+                border: 1px solid #e2e8f0;
+                border-radius: 16px;
+                background: #fff;
+                margin-bottom: 10px;
+            }
+            .dark .sr-row { border-bottom-color: #334155; }
+            .dark .sr-row {
+                border-color: #334155;
+                background: #0f172a;
+            }
+            .sr-side {
+                height: auto;
+                min-height: 46px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+            }
+            .sr-side.call,
+            .sr-side.put {
+                justify-content: stretch;
+            }
+            .sr-side.call .sr-bar,
+            .sr-side.put .sr-bar {
+                left: 0;
+                right: auto;
+            }
+            .sr-label {
+                width: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                font-size: 15px;
+                padding: 0 12px;
+            }
+            .sr-strike {
+                order: -1;
+                border-radius: 14px;
+                font-size: 28px;
+                padding: 12px 10px;
+            }
+            .sr-note {
+                margin-left: 6px;
+                margin-top: 6px;
+            }
+        }
+        @media (max-width: 768px) {
+            body { font-size: 15px; }
+            th, td { padding: 10px 12px; }
+            nav.sticky {
+                position: static;
+            }
+            .nav-shell {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 12px;
+            }
+            .nav-title h1 {
+                font-size: 20px;
+                line-height: 1.3;
+            }
+            .nav-controls {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                align-items: stretch;
+                gap: 10px;
+            }
+            .control-group {
+                display: contents;
+            }
+            .nav-btn,
+            .date-input,
+            #shareBtn,
+            #refreshBtn,
+            #themeBtn {
+                width: 100%;
+                min-height: 44px;
+                font-size: 14px;
+            }
+            #shareBtn,
+            #refreshBtn,
+            #themeBtn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .share-link {
+                display: none;
+            }
+            .share-card {
+                display: block;
+            }
+            main {
+                padding-top: 20px;
+            }
+            .section-meta-grid {
+                grid-template-columns: 1fr;
+            }
+            .meta-pill {
+                font-size: 13px;
+            }
+            .section-card {
+                border-radius: 20px;
+            }
+            .table-wrap {
+                margin-left: -4px;
+                margin-right: -4px;
+            }
+            .table-wrap table {
+                min-width: 640px;
+            }
+            .shared-zone {
+                padding: 14px;
+            }
+            .sr-summary-card h4 {
+                font-size: 20px;
+            }
+            .sr-summary-meta {
+                font-size: 14px;
+            }
+            .copy-block {
+                font-size: 13px;
+                line-height: 1.75;
+                padding: 14px;
+            }
+        }
+        @media print {
+            body {
+                background: #ffffff !important;
+                color: #000000 !important;
+                font-size: 12px;
+            }
+            nav,
+            #errorBox,
+            #mobileShareCard,
+            .sr-tab-bar,
+            .sr-summary-grid button,
+            #shareBtn,
+            #refreshBtn,
+            #themeBtn,
+            #pdfBtn,
+            #prevDayBtn,
+            #nextDayBtn,
+            #datePicker,
+            #shareLink {
+                display: none !important;
+            }
+            main {
+                max-width: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .section-card,
+            .loading-card,
+            .shared-zone,
+            .sr-chart-card,
+            .meta-pill,
+            .table-wrap {
+                box-shadow: none !important;
+                border-color: #d1d5db !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+            }
+            .section-card {
+                break-inside: avoid;
+                page-break-inside: avoid;
+                margin-bottom: 16px !important;
+                padding: 16px !important;
+            }
+            .table-wrap {
+                overflow: visible !important;
+            }
+            .table-wrap table {
+                min-width: 0 !important;
+                width: 100% !important;
+                font-size: 11px;
+            }
+            th, td {
+                padding: 6px 8px !important;
+            }
+            a {
+                color: #000000 !important;
+                text-decoration: none !important;
+            }
+            .copy-block {
+                border-color: #d1d5db !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+            }
+            .num-pos,
+            .num-neg,
+            .sr-change-pos,
+            .sr-change-neg {
+                color: #000000 !important;
+                font-weight: 700;
+            }
+            .sr-panel {
+                display: block !important;
+            }
+            .sr-row {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen">
+    <nav class="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-950/90 backdrop-blur">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="nav-shell">
+            <div class="nav-title">
+                <h1 class="text-xl font-black">台指期貨 / 選擇權籌碼詳細表格版</h1>
+                <p class="text-xs text-slate-500 dark:text-slate-400">固定順序 A → J，先表格整理，後分析判讀</p>
+            </div>
+            <div class="nav-controls">
+                <span id="reportDate" class="hidden md:block text-sm text-slate-500 dark:text-slate-400 mono">資料日期：讀取中</span>
+                <div class="control-group">
+                    <button id="prevDayBtn" class="nav-btn">前一日</button>
+                    <input id="datePicker" type="date" class="date-input" />
+                    <button id="nextDayBtn" class="nav-btn">後一日</button>
+                </div>
+                <div class="control-group">
+                    <input id="shareLink" type="text" readonly class="hidden lg:block share-link" />
+                    <button id="shareBtn" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-sm font-bold">分享連結</button>
+                    <button id="pdfBtn" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-sm font-bold">下載 PDF</button>
+                    <button id="refreshBtn" class="px-3 py-2 rounded-lg bg-sky-600 text-white text-sm font-bold hover:bg-sky-700">重新抓取</button>
+                    <button id="themeBtn" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-sm font-bold">深色切換</button>
+                </div>
+            </div>
+            </div>
+            <div id="mobileShareCard" class="share-card">
+                <div class="share-card-label">本機可分享網址</div>
+                <span id="mobileShareUrl" class="share-card-url">讀取中</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <section class="section-card rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-sm">
+            <h2 class="text-2xl font-black mb-3">輸出規格</h2>
+            <p class="leading-7 text-slate-600 dark:text-slate-300">
+                本頁依固定順序輸出 A. 三大法人總表、B. 期貨分契約、C. 大額交易人、D. 選擇權分契約、E. 支撐壓力、F. OI 增減、G. Put/Call Ratio、H. 綜合分析、I. Telegram 精簡版、J. Email 完整版。
+                所有數字均以期交所官方頁面抓取後整理，若資料缺漏會直接標示缺資料。
+            </p>
+        </section>
+
+        <div id="reportRoot" class="space-y-8">
+            <section class="loading-card">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="loading-dot"></span>
+                    <span class="loading-dot"></span>
+                    <span class="loading-dot"></span>
+                </div>
+                <h2 class="text-xl font-black mb-3">預設載入最近一個營業日資料</h2>
+                <p class="text-sm leading-7 text-slate-600 dark:text-slate-300">
+                    頁面開啟時，系統會自動抓取最近一個可用營業日的台指期貨 / 選擇權報告。
+                    如果你要看歷史資料，再用上方日期切換。
+                </p>
+            </section>
+        </div>
+
+        <section id="errorBox" class="hidden section-card rounded-2xl bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900 p-6">
+            <h2 class="text-xl font-black text-red-700 dark:text-red-300 mb-2">資料載入失敗</h2>
+            <p id="errorText" class="text-red-600 dark:text-red-200 text-sm"></p>
+        </section>
+    </main>
+
+    <script>
+        const reportRoot = document.getElementById("reportRoot");
+        const reportDate = document.getElementById("reportDate");
+        const errorBox = document.getElementById("errorBox");
+        const errorText = document.getElementById("errorText");
+        const refreshBtn = document.getElementById("refreshBtn");
+        const datePicker = document.getElementById("datePicker");
+        const shareLink = document.getElementById("shareLink");
+        const shareBtn = document.getElementById("shareBtn");
+        const pdfBtn = document.getElementById("pdfBtn");
+        const prevDayBtn = document.getElementById("prevDayBtn");
+        const nextDayBtn = document.getElementById("nextDayBtn");
+        const mobileShareUrl = document.getElementById("mobileShareUrl");
+
+        function escapeHtml(text) {
+            return String(text ?? "")
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;");
+        }
+
+        function formatNumber(value) {
+            if (value === null || value === undefined) return "缺資料";
+            if (typeof value === "string") return value;
+            return new Intl.NumberFormat("zh-TW").format(value);
+        }
+
+        function formatSigned(value) {
+            if (value === null || value === undefined) return "缺資料";
+            const num = Number(value);
+            if (!Number.isFinite(num)) return value;
+            return `${num >= 0 ? "+" : ""}${formatNumber(num)}`;
+        }
+
+        function signedClass(value) {
+            if (value === null || value === undefined) return "";
+            return Number(value) >= 0 ? "num-pos" : "num-neg";
+        }
+
+        function sourceLinks(sources) {
+            return sources.map((url) => `<a class="text-sky-600 dark:text-sky-300 underline break-all" href="${url}" target="_blank" rel="noreferrer">${url}</a>`).join("<br>");
+        }
+
+        function formatSummaryText(text) {
+            const escaped = escapeHtml(text);
+            return escaped.replace(/([+-]\d[\d,]*(?:\.\d+)?%?)/g, (match) => {
+                const klass = match.startsWith("+") ? "num-pos" : "num-neg";
+                return `<span class="${klass}">${match}</span>`;
+            });
+        }
+
+        function renderMeta(section) {
+            return `
+                <div class="section-meta-grid">
+                    <div class="meta-pill"><span class="font-bold">日期：</span>${escapeHtml(section.date)}</div>
+                    <div class="meta-pill"><span class="font-bold">單位：</span>${escapeHtml(section.unit)}</div>
+                    <div class="meta-pill"><span class="font-bold">資料類型：</span>${section.title.startsWith("H.") || section.title.startsWith("I.") || section.title.startsWith("J.") ? "分析判讀" : "原始數字 / 摘要整理"}</div>
+                </div>
+            `;
+        }
+
+        function renderBullets(title, items) {
+            return `
+                <div class="mt-5">
+                    <h4 class="font-black mb-2">${title}</h4>
+                    <ul class="list-disc pl-6 space-y-1 text-sm leading-7">
+                        ${items.map(item => `<li>${formatSummaryText(item)}</li>`).join("")}
+                    </ul>
+                </div>
+            `;
+        }
+
+        function sectionShell(title, inner) {
+            return `
+                <section class="section-card rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-sm">
+                    <h2 class="text-2xl font-black mb-5">${escapeHtml(title)}</h2>
+                    ${inner}
+                </section>
+            `;
+        }
+
+        function renderChangeOverview(section) {
+            const cards = (section.items || []).map((item) => `
+                <div class="meta-pill">
+                    <div class="font-black mb-2">${escapeHtml(item.product)}</div>
+                    <div>單日合計變動：<span class="${signedClass(item.dayTotal)}">${formatSigned(item.dayTotal)}</span></div>
+                    <div>自 ${escapeHtml(item.cycleStartDate)} 起累積變動：<span class="${signedClass(item.cycleTotal)}">${formatSigned(item.cycleTotal)}</span></div>
+                    <div class="mt-3 space-y-2">
+                        ${(item.institutions || []).map((inst) => `
+                            <div class="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900">
+                                <div class="font-bold mb-1">${escapeHtml(inst.institution)}</div>
+                                <div>單日：多方 <span class="${signedClass(inst.dayLongChange)}">${formatSigned(inst.dayLongChange)}</span>、空方 <span class="${signedClass(inst.dayShortChange)}">${formatSigned(inst.dayShortChange)}</span>、淨額 <span class="${signedClass(inst.dayNetChange)}">${formatSigned(inst.dayNetChange)}</span></div>
+                                <div>累積：多方 <span class="${signedClass(inst.cycleLongChange)}">${formatSigned(inst.cycleLongChange)}</span>、空方 <span class="${signedClass(inst.cycleShortChange)}">${formatSigned(inst.cycleShortChange)}</span>、淨額 <span class="${signedClass(inst.cycleNetChange)}">${formatSigned(inst.cycleNetChange)}</span></div>
+                            </div>
+                        `).join("")}
+                    </div>
+                </div>
+            `).join("");
+
+            return sectionShell("期貨差異變動速覽", `
+                <div class="text-sm leading-7">
+                    <p>先看期貨各類別未平倉淨額的單日變動與結算後累積變動，再往下看 B、C 表完整細項。</p>
+                </div>
+                ${renderBullets("速覽重點", section.highlights || [])}
+                ${section.largeTraderSummary ? renderBullets("大額交易人前五大 / 前十大", section.largeTraderSummary) : ""}
+                <div class="section-meta-grid mt-5">
+                    ${cards}
+                </div>
+            `);
+        }
+
+        function showLoadingState(message = "正在抓取最近一個營業日資料，請稍候。") {
+            reportRoot.innerHTML = `
+                <section class="loading-card">
+                    <div class="flex items-center gap-2 mb-4">
+                        <span class="loading-dot"></span>
+                        <span class="loading-dot"></span>
+                        <span class="loading-dot"></span>
+                    </div>
+                    <h2 class="text-xl font-black mb-3">資料載入中</h2>
+                    <p class="text-sm leading-7 text-slate-600 dark:text-slate-300">${escapeHtml(message)}</p>
+                </section>
+            `;
+        }
+
+        function renderTableA(section) {
+            const rows = section.rows.map((row) => `
+                <tr>
+                    <td>${escapeHtml(row.institution)}</td>
+                    <td class="${signedClass(row.futuresTradeNetQty)}">${formatSigned(row.futuresTradeNetQty)}</td>
+                    <td class="${signedClass(row.futuresOiNetQty)}">${formatSigned(row.futuresOiNetQty)}</td>
+                    <td class="${signedClass(row.optionsTradeNetQty)}">${formatSigned(row.optionsTradeNetQty)}</td>
+                    <td class="${signedClass(row.optionsOiNetQty)}">${formatSigned(row.optionsOiNetQty)}</td>
+                    <td class="${signedClass(row.combinedOiNetQty)}">${formatSigned(row.combinedOiNetQty)}</td>
+                </tr>
+            `).join("");
+
+            return sectionShell(section.title, `
+                ${renderMeta(section)}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>法人</th>
+                                <th>期貨交易淨額</th>
+                                <th>期貨未平倉淨額</th>
+                                <th>選擇權交易淨額</th>
+                                <th>選擇權未平倉淨額</th>
+                                <th>合計未平倉淨額</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">表格解讀</h4>
+                    <p>${escapeHtml(section.interpretation)}</p>
+                </div>
+                ${renderBullets("重點摘要", section.highlights)}
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">資料來源</h4>
+                    ${sourceLinks(section.sources)}
+                </div>
+            `);
+        }
+
+        function renderContractTable(section, isOption = false) {
+            const rows = section.rows.map((row) => `
+                <tr>
+                    <td>${escapeHtml(isOption ? row.institution : `${row.product} / ${row.institution}`)}</td>
+                    ${isOption ? "" : `<td>${escapeHtml(row.product)}</td><td>${escapeHtml(row.institution)}</td>`}
+                    <td>${formatNumber(row.tradeLongQty)}</td>
+                    <td>${formatNumber(row.tradeLongAmount)}</td>
+                    <td>${formatNumber(row.tradeShortQty)}</td>
+                    <td>${formatNumber(row.tradeShortAmount)}</td>
+                    <td class="${signedClass(row.tradeNetQty)}">${formatSigned(row.tradeNetQty)}</td>
+                    <td>${formatNumber(row.oiLongQty)}</td>
+                    <td>${formatNumber(row.oiLongAmount)}</td>
+                    <td>${formatNumber(row.oiShortQty)}</td>
+                    <td>${formatNumber(row.oiShortAmount)}</td>
+                    <td class="${signedClass(row.oiNetQty)}">${formatSigned(row.oiNetQty)}</td>
+                    ${isOption ? "" : `
+                        <td>${formatNumber(row.previousOiNetQty)}</td>
+                        <td class="${signedClass(row.dayChangeOiNetQty)}">${formatSigned(row.dayChangeOiNetQty)}</td>
+                        <td>${formatNumber(row.cycleStartOiNetQty)}</td>
+                        <td class="${signedClass(row.cycleChangeOiNetQty)}">${formatSigned(row.cycleChangeOiNetQty)}</td>
+                    `}
+                </tr>
+            `).join("");
+
+            const head = isOption
+                ? `<tr><th>身份別</th><th>多方口數</th><th>多方金額</th><th>空方口數</th><th>空方金額</th><th>交易淨額</th><th>未平倉多方</th><th>未平倉多方金額</th><th>未平倉空方</th><th>未平倉空方金額</th><th>未平倉淨額</th></tr>`
+                : `<tr><th>商品 / 身份別</th><th>商品</th><th>身份別</th><th>多方口數</th><th>多方金額</th><th>空方口數</th><th>空方金額</th><th>交易淨額</th><th>未平倉多方</th><th>未平倉多方金額</th><th>未平倉空方</th><th>未平倉空方金額</th><th>未平倉淨額</th><th>前一日未平倉淨額</th><th>單日變動</th><th>結算後基準淨額</th><th>結算後累積變動</th></tr>`;
+
+            return sectionShell(section.title, `
+                ${renderMeta(section)}
+                <div class="table-wrap">
+                    <table>
+                        <thead>${head}</thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                ${!isOption && section.categoryAnalysis ? renderBullets("期貨變動簡要分析", section.categoryAnalysis) : ""}
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">表格解讀</h4>
+                    <p>${escapeHtml(section.interpretation)}</p>
+                </div>
+                ${renderBullets("重點摘要", section.highlights)}
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">資料來源</h4>
+                    ${sourceLinks(section.sources)}
+                </div>
+            `);
+        }
+
+        function renderTableC(section) {
+            const rows = section.rows.map((row) => `
+                            <tr>
+                                <td>${escapeHtml(row.contractName)}</td>
+                                <td>${escapeHtml(row.contractLabel || row.expiry)}</td>
+                                <td>${formatNumber(row.longTop5Qty)}</td>
+                                <td>${formatNumber(row.longTop5SpecificQty)}</td>
+                                <td>${row.longTop5Pct.toFixed(1)}%</td>
+                                <td>${formatNumber(row.longTop10Qty)}</td>
+                                <td>${formatNumber(row.longTop10SpecificQty)}</td>
+                                <td>${row.longTop10Pct.toFixed(1)}%</td>
+                                <td>${formatNumber(row.shortTop5Qty)}</td>
+                                <td>${formatNumber(row.shortTop5SpecificQty)}</td>
+                                <td>${row.shortTop5Pct.toFixed(1)}%</td>
+                                <td>${formatNumber(row.shortTop10Qty)}</td>
+                                <td>${formatNumber(row.shortTop10SpecificQty)}</td>
+                                <td>${row.shortTop10Pct.toFixed(1)}%</td>
+                                <td>${formatNumber(row.marketOi)}</td>
+                            </tr>
+            `).join("");
+            return sectionShell(section.title, `
+                ${renderMeta(section)}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>契約名稱</th>
+                                <th>到期月份</th>
+                                <th>前五大買方</th>
+                                <th>前五大買方特定法人</th>
+                                <th>前五大買方占比</th>
+                                <th>前十大買方</th>
+                                <th>前十大買方特定法人</th>
+                                <th>前十大買方占比</th>
+                                <th>前五大賣方</th>
+                                <th>前五大賣方特定法人</th>
+                                <th>前五大賣方占比</th>
+                                <th>前十大賣方</th>
+                                <th>前十大賣方特定法人</th>
+                                <th>前十大賣方占比</th>
+                                <th>全市場未沖銷</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">表格解讀</h4>
+                    <p>${escapeHtml(section.interpretation)}</p>
+                </div>
+                ${renderBullets("重點摘要", section.highlights)}
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">資料來源</h4>
+                    ${sourceLinks(section.sources)}
+                </div>
+            `);
+        }
+
+        function renderTableE(section) {
+            const sharedSupport = section.sharedSupport || { rangeLow: null, rangeHigh: null, clustered: false, items: [] };
+            const sharedResistance = section.sharedResistance || { rangeLow: null, rangeHigh: null, clustered: false, items: [] };
+
+            const supportItems = sharedSupport.items.length
+                ? sharedSupport.items.map((item) =>
+                `<li>${escapeHtml(item.label)} ${escapeHtml(item.series)}：${formatNumber(item.strike)} Put / ${formatNumber(item.oi)} 口</li>`
+            ).join("")
+                : "<li>缺資料</li>";
+            const resistanceItems = sharedResistance.items.length
+                ? sharedResistance.items.map((item) =>
+                `<li>${escapeHtml(item.label)} ${escapeHtml(item.series)}：${formatNumber(item.strike)} Call / ${formatNumber(item.oi)} 口</li>`
+            ).join("")
+                : "<li>缺資料</li>";
+            const renderChart = (chart, index) => {
+                const maxCall = Math.max(...chart.rows.map((row) => row.callOi || 0), 1);
+                const maxPut = Math.max(...chart.rows.map((row) => row.putOi || 0), 1);
+                const rows = chart.rows.map((row) => {
+                const callWidth = `${Math.max(((row.callOi || 0) / maxCall) * 100, row.callOi ? 3 : 0)}%`;
+                const putWidth = `${Math.max(((row.putOi || 0) / maxPut) * 100, row.putOi ? 3 : 0)}%`;
+                const callChangeClass = row.callChange >= 0 ? "sr-change-pos" : "sr-change-neg";
+                const putChangeClass = row.putChange >= 0 ? "sr-change-pos" : "sr-change-neg";
+                const strikeClass = row.strike === chart.atmStrike
+                    ? "atm"
+                    : row.strike === chart.floor.strike || row.strike === chart.defense.strike
+                        ? "support"
+                        : row.strike === chart.ceiling.strike
+                            ? "resistance"
+                            : "";
+                const extraNote = row.strike === chart.defense.strike && row.strike !== chart.floor.strike
+                    ? `<span class="sr-note">近防線</span>`
+                    : "";
+                return `
+                    <div class="sr-row">
+                        <div class="sr-side call">
+                            <div class="sr-bar" style="width:${callWidth};"></div>
+                            <div class="sr-label">
+                                <span class="${callChangeClass}">(${formatSigned(row.callChange)})</span>
+                                <span>${formatNumber(row.callOi)}</span>
+                            </div>
+                        </div>
+                        <div class="sr-strike ${strikeClass}">
+                            ${formatNumber(row.strike)}
+                            ${extraNote}
+                        </div>
+                        <div class="sr-side put">
+                            <div class="sr-bar" style="width:${putWidth};"></div>
+                            <div class="sr-label">
+                                <span>${formatNumber(row.putOi)}</span>
+                                <span class="${putChangeClass}">(${formatSigned(row.putChange)})</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                }).join("");
+
+                return `
+                    <div class="sr-panel ${index === 0 ? "active" : ""}" data-sr-panel="${index}">
+                    <div class="sr-chart-card">
+                        <div class="mb-4">
+                            <div class="flex flex-wrap items-center gap-3 mb-2">
+                                <h4 class="text-lg font-black">${escapeHtml(chart.label)}</h4>
+                                <span class="px-2 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-bold mono">${escapeHtml(chart.series)}</span>
+                            </div>
+                            <div class="text-sm leading-7">
+                                <div><span class="font-bold">ATM：</span>${formatNumber(chart.atmStrike)}</div>
+                                <div><span class="font-bold">主壓：</span>${formatNumber(chart.ceiling.strike)} Call / ${formatNumber(chart.ceiling.callOi)} 口</div>
+                                <div><span class="font-bold">主撐：</span>${formatNumber(chart.floor.strike)} Put / ${formatNumber(chart.floor.putOi)} 口</div>
+                                <div><span class="font-bold">近防線：</span>${formatNumber(chart.defense.strike)} Put / ${formatNumber(chart.defense.putOi)} 口</div>
+                            </div>
+                        </div>
+                        <div class="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                            左側為 Call OI 與增減，右側為 Put OI 與增減；長條越長代表未平倉量越大。
+                        </div>
+                        <div class="sr-chart">${rows}</div>
+                        ${renderBullets("本圖重點摘要", chart.highlights)}
+                    </div>
+                    </div>
+                `;
+            };
+            return sectionShell(section.title, `
+                ${renderMeta(section)}
+                <div class="mb-4 text-sm leading-7">
+                    <p><span class="font-bold">月選主契約：</span>${escapeHtml(section.monthlyContract)}</p>
+                    <p><span class="font-bold">近月 TX 結算價：</span>${formatNumber(section.txSettlement)}</p>
+                </div>
+                <div class="sr-summary-grid">
+                    ${section.charts.map((chart, index) => `
+                        <button type="button" class="sr-summary-card ${index === 0 ? "active" : ""}" data-sr-target="${index}">
+                            <div class="flex items-center gap-3 mb-3">
+                                <h4>${escapeHtml(chart.label)}</h4>
+                                <span class="px-2 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-bold mono">${escapeHtml(chart.series)}</span>
+                            </div>
+                            <div class="sr-summary-meta">
+                                <div><span class="font-bold">ATM：</span>${formatNumber(chart.atmStrike)}</div>
+                                <div><span class="font-bold">主壓：</span>${formatNumber(chart.ceiling.strike)} Call / ${formatNumber(chart.ceiling.callOi)} 口</div>
+                                <div><span class="font-bold">主撐：</span>${formatNumber(chart.floor.strike)} Put / ${formatNumber(chart.floor.putOi)} 口</div>
+                                <div><span class="font-bold">近防線：</span>${formatNumber(chart.defense.strike)} Put / ${formatNumber(chart.defense.putOi)} 口</div>
+                            </div>
+                        </button>
+                    `).join("")}
+                </div>
+                <div class="sr-view">
+                    <div class="sr-tab-bar">
+                        ${section.charts.map((chart, index) => `
+                            <button type="button" class="sr-tab-btn ${index === 0 ? "active" : ""}" data-sr-target="${index}">
+                                ${escapeHtml(chart.label)} / ${escapeHtml(chart.series)}
+                            </button>
+                        `).join("")}
+                    </div>
+                    ${section.charts.map(renderChart).join("")}
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-6">
+                    <div class="shared-zone">
+                        <h4 class="font-black mb-2">共同支撐</h4>
+                        <p class="text-sm leading-7 mb-3">
+                            觀察區：${formatNumber(sharedSupport.rangeLow)} 至 ${formatNumber(sharedSupport.rangeHigh)}
+                            ，${sharedSupport.items.length ? (sharedSupport.clustered ? "三張圖支撐相對集中。" : "三張圖支撐分散，需分開看。") : "缺資料。"}
+                        </p>
+                        <ul class="list-disc pl-6 space-y-1 text-sm leading-7">
+                            ${supportItems}
+                        </ul>
+                    </div>
+                    <div class="shared-zone">
+                        <h4 class="font-black mb-2">共同壓力</h4>
+                        <p class="text-sm leading-7 mb-3">
+                            觀察區：${formatNumber(sharedResistance.rangeLow)} 至 ${formatNumber(sharedResistance.rangeHigh)}
+                            ，${sharedResistance.items.length ? (sharedResistance.clustered ? "三張圖壓力相對集中。" : "三張圖壓力分散，需分開看。") : "缺資料。"}
+                        </p>
+                        <ul class="list-disc pl-6 space-y-1 text-sm leading-7">
+                            ${resistanceItems}
+                        </ul>
+                    </div>
+                </div>
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">表格解讀</h4>
+                    <p>${escapeHtml(section.interpretation)}</p>
+                </div>
+                ${renderBullets("重點摘要", section.highlights)}
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">資料來源</h4>
+                    ${sourceLinks(section.sources)}
+                </div>
+            `);
+        }
+
+        function activateSrChart(root, targetIndex) {
+            root.querySelectorAll("[data-sr-target]").forEach((node) => {
+                node.classList.toggle("active", node.getAttribute("data-sr-target") === String(targetIndex));
+            });
+            root.querySelectorAll("[data-sr-panel]").forEach((node) => {
+                node.classList.toggle("active", node.getAttribute("data-sr-panel") === String(targetIndex));
+            });
+        }
+
+        function renderTableF(section) {
+            const rows = section.rows.map((row) => `
+                <tr>
+                    <td>${formatNumber(row.strike)}</td>
+                    <td>${formatNumber(row.callOi)}</td>
+                    <td class="${signedClass(row.callChange)}">${formatSigned(row.callChange)}</td>
+                    <td>${formatNumber(row.putOi)}</td>
+                    <td class="${signedClass(row.putChange)}">${formatSigned(row.putChange)}</td>
+                </tr>
+            `).join("");
+            return sectionShell(section.title, `
+                ${renderMeta(section)}
+                <div class="table-wrap mb-5">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>日期</th>
+                                <th>當日未平倉量</th>
+                                <th>前一日</th>
+                                <th>前一日未平倉量</th>
+                                <th>整體增減</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>${escapeHtml(section.overall.date)}</td>
+                                <td>${formatNumber(section.overall.currentOi)}</td>
+                                <td>${escapeHtml(section.overall.previousDate)}</td>
+                                <td>${formatNumber(section.overall.previousOi)}</td>
+                                <td class="${signedClass(section.overall.change)}">${formatSigned(section.overall.change)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>履約價</th>
+                                <th>Call OI</th>
+                                <th>Call 增減</th>
+                                <th>Put OI</th>
+                                <th>Put 增減</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">表格解讀</h4>
+                    <p>${escapeHtml(section.interpretation)}</p>
+                </div>
+                ${renderBullets("重點摘要", section.highlights)}
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">資料來源</h4>
+                    ${sourceLinks(section.sources)}
+                </div>
+            `);
+        }
+
+        function renderTableG(section) {
+            const trendText = section.highlights.find((item) => item.startsWith("五日趨勢："));
+            const rows = section.rows.length
+                ? section.rows.map((row) => `
+                <tr>
+                    <td>${escapeHtml(row.date)}</td>
+                    <td>${formatNumber(row.putVolume)}</td>
+                    <td>${formatNumber(row.callVolume)}</td>
+                    <td>${row.volumeRatio.toFixed(2)}%</td>
+                    <td>${formatNumber(row.putOi)}</td>
+                    <td>${formatNumber(row.callOi)}</td>
+                    <td>${row.oiRatio.toFixed(2)}%</td>
+                </tr>
+            `).join("")
+                : `<tr><td colspan="7" class="text-left">缺資料</td></tr>`;
+            return sectionShell(section.title, `
+                ${renderMeta(section)}
+                ${trendText ? `<div class="mb-4 text-sm leading-7"><span class="font-black">五日趨勢：</span>${escapeHtml(trendText.replace("五日趨勢：", ""))}</div>` : ""}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>日期</th>
+                                <th>賣權成交量</th>
+                                <th>買權成交量</th>
+                                <th>成交量比率</th>
+                                <th>賣權未平倉量</th>
+                                <th>買權未平倉量</th>
+                                <th>未平倉量比率</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">表格解讀</h4>
+                    <p>${escapeHtml(section.interpretation)}</p>
+                </div>
+                ${renderBullets("重點摘要", section.highlights)}
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">資料來源</h4>
+                    ${sourceLinks(section.sources)}
+                </div>
+            `);
+        }
+
+        function renderAnalysis(report) {
+            const a = report.analysis;
+            const sections = a.sections.map((section, index) => `
+                <div class="mb-5">
+                    <h4 class="font-black mb-2">${index + 2}. ${escapeHtml(section.title)}</h4>
+                    <p class="text-sm leading-7">${escapeHtml(section.body)}</p>
+                </div>
+            `).join("");
+            return sectionShell("H. 綜合分析", `
+                <div class="text-sm leading-7">
+                    <h4 class="font-black mb-2">1. 今日重點摘要</h4>
+                    <ul class="list-disc pl-6 space-y-1">
+                        ${a.highlights.map(item => `<li>${escapeHtml(item)}</li>`).join("")}
+                    </ul>
+                </div>
+                <div class="mt-5">${sections}</div>
+                <div class="mt-5">
+                    <h4 class="font-black mb-2">9. 策略建議（保守版 / 中性版 / 積極版）</h4>
+                    <ul class="list-disc pl-6 space-y-1 text-sm leading-7">
+                        <li>保守版：${escapeHtml(a.strategies.conservative)}</li>
+                        <li>中性版：${escapeHtml(a.strategies.neutral)}</li>
+                        <li>積極版：${escapeHtml(a.strategies.aggressive)}</li>
+                    </ul>
+                </div>
+                <div class="mt-5">
+                    <h4 class="font-black mb-2">10. 一句話結論</h4>
+                    <p class="text-sm leading-7">${escapeHtml(a.conclusion)}</p>
+                </div>
+            `);
+        }
+
+        function renderCopySection(title, text) {
+            return sectionShell(title, `
+                <div class="text-sm mb-4 text-slate-500 dark:text-slate-400">可直接複製使用</div>
+                <div class="copy-block text-sm leading-7 p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">${escapeHtml(text)}</div>
+            `);
+        }
+
+        function renderReport(report) {
+            const tables = report.tables;
+            reportDate.textContent = `資料日期：${report.meta.date}`;
+            document.title = `${report.meta.date} 台指期貨 / 選擇權籌碼完整報告`;
+            shareLink.value = report.meta.reportUrl || window.location.href;
+            mobileShareUrl.textContent = report.meta.reportUrl || window.location.href;
+            if (window.history && window.history.replaceState) {
+                const nextUrl = new URL(report.meta.reportUrl || window.location.href, window.location.origin);
+                window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}`);
+            }
+            reportRoot.innerHTML = [
+                renderChangeOverview(report.changeOverview),
+                renderTableA(tables.A),
+                renderContractTable(tables.B, false),
+                renderTableC(tables.C),
+                renderContractTable(tables.D, true),
+                renderTableE(tables.E),
+                renderTableF(tables.F),
+                renderTableG(tables.G),
+                renderAnalysis(report),
+                renderCopySection("I. Telegram 精簡版", report.telegram),
+                renderCopySection("J. Email 完整版", report.email),
+            ].join("");
+
+            const eSection = reportRoot.querySelector(".section-card:nth-of-type(6)");
+            if (eSection) {
+                eSection.querySelectorAll("[data-sr-target]").forEach((node) => {
+                    node.addEventListener("click", () => activateSrChart(eSection, node.getAttribute("data-sr-target")));
+                });
+            }
+        }
+
+        function currentSelectedDate() {
+            return datePicker.value || "";
+        }
+
+        function shiftDate(days) {
+            const base = currentSelectedDate() || new Date().toISOString().slice(0, 10);
+            const dt = new Date(`${base}T00:00:00`);
+            dt.setDate(dt.getDate() + days);
+            const y = dt.getFullYear();
+            const m = String(dt.getMonth() + 1).padStart(2, "0");
+            const d = String(dt.getDate()).padStart(2, "0");
+            datePicker.value = `${y}-${m}-${d}`;
+            loadReport();
+        }
+
+        function syncDatePicker(reportDateText) {
+            if (!reportDateText) return;
+            const [y, m, d] = reportDateText.split("/");
+            datePicker.value = `${y}-${m}-${d}`;
+        }
+
+        async function loadReport() {
+            refreshBtn.disabled = true;
+            errorBox.classList.add("hidden");
+            try {
+                const date = currentSelectedDate();
+                showLoadingState(date ? `正在抓取 ${date.replaceAll("-", "/")} 的歷史資料，請稍候。` : "正在抓取最近一個營業日資料，請稍候。");
+                const query = date ? `?date=${encodeURIComponent(date.replaceAll("-", "/"))}` : "";
+                const response = await fetch(`/api/report${query}`, { cache: "no-store" });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                syncDatePicker(data.meta.date);
+                renderReport(data);
+            } catch (error) {
+                errorBox.classList.remove("hidden");
+                errorText.textContent = error.message;
+            } finally {
+                refreshBtn.disabled = false;
+            }
+        }
+
+        document.getElementById("themeBtn").addEventListener("click", () => {
+            document.documentElement.classList.toggle("dark");
+        });
+        refreshBtn.addEventListener("click", loadReport);
+        datePicker.addEventListener("change", loadReport);
+        prevDayBtn.addEventListener("click", () => shiftDate(-1));
+        nextDayBtn.addEventListener("click", () => shiftDate(1));
+        pdfBtn.addEventListener("click", () => {
+            const date = currentSelectedDate();
+            const query = date ? `?date=${encodeURIComponent(date.replaceAll("-", "/"))}` : "";
+            window.open(`/api/report.pdf${query}`, "_blank");
+        });
+        shareBtn.addEventListener("click", async () => {
+            const url = shareLink.value || window.location.href;
+            if (navigator.share) {
+                try {
+                    await navigator.share({ title: "台指期權籌碼報告", url });
+                    return;
+                } catch (_) {}
+            }
+            try {
+                await navigator.clipboard.writeText(url);
+                if (mobileShareUrl) mobileShareUrl.textContent = url;
+                shareBtn.textContent = "已複製";
+                setTimeout(() => { shareBtn.textContent = "分享連結"; }, 1200);
+            } catch (_) {}
+        });
+        loadReport();
+    </script>
+</body>
+</html>
