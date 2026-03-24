@@ -1900,6 +1900,24 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
 
 
 class Handler(SimpleHTTPRequestHandler):
+    def do_HEAD(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/report":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
+        if parsed.path == "/api/report.pdf":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
+        if parsed.path == "/":
+            self.path = "/index.html"
+        return super().do_HEAD()
+
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/report":
