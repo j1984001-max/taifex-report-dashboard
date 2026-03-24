@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import threading
 import urllib.parse
 import urllib.request
 from collections import defaultdict
@@ -29,6 +30,9 @@ ROOT = Path(__file__).resolve().parent
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8000"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://taifex-report-dashboard.onrender.com").rstrip("/")
+CACHE_DIR = ROOT / ".cache"
+LATEST_REPORT_CACHE_TTL = int(os.environ.get("LATEST_REPORT_CACHE_TTL", "21600"))
+HISTORICAL_REPORT_CACHE_TTL = int(os.environ.get("HISTORICAL_REPORT_CACHE_TTL", "604800"))
 TAIFEX = "https://www.taifex.com.tw"
 BQ888 = "https://www.bq888.taifex.com.tw"
 
@@ -42,6 +46,10 @@ TARGET_OPTION_PRODUCT = "臺指選擇權"
 TARGET_LARGE_TRADER = "臺股期貨(TX+MTX/4+TMF/20)"
 
 pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+
+CACHE_DIR.mkdir(exist_ok=True)
+REPORT_CACHE_LOCK = threading.Lock()
+REPORT_CACHE_MEMORY: dict[str, dict[str, Any]] = {}
 
 
 @dataclass
@@ -98,6 +106,71 @@ def latest_business_day(today: datetime | None = None) -> str:
     while current.weekday() >= 5:
         current -= timedelta(days=1)
     return current.strftime("%Y/%m/%d")
+
+
+def cache_key(report_date: str, report_url: str) -> str:
+    safe_date = report_date.replace("/", "-")
+    safe_url = re.sub(r"[^A-Za-z0-9]+", "_", report_url).strip("_") or "default"
+    return f"{safe_date}-{safe_url}"
+
+
+def cache_ttl_for_date(report_date: str) -> int:
+    return LATEST_REPORT_CACHE_TTL if report_date == latest_business_day() else HISTORICAL_REPORT_CACHE_TTL
+
+
+def cache_paths(key: str) -> tuple[Path, Path]:
+    return CACHE_DIR / f"{key}.json", CACHE_DIR / f"{key}.pdf"
+
+
+def load_cached_report(key: str, ttl: int) -> tuple[dict[str, Any], bytes | None] | None:
+    now = datetime.now().timestamp()
+    with REPORT_CACHE_LOCK:
+        cached = REPORT_CACHE_MEMORY.get(key)
+        if cached and now - cached["created_at"] <= ttl:
+            return cached["report"], cached.get("pdf")
+
+    json_path, pdf_path = cache_paths(key)
+    if not json_path.exists():
+        return None
+    age = now - json_path.stat().st_mtime
+    if age > ttl:
+        return None
+
+    try:
+        report = json.loads(json_path.read_text(encoding="utf-8"))
+        pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
+    except Exception:
+        return None
+
+    with REPORT_CACHE_LOCK:
+        REPORT_CACHE_MEMORY[key] = {"created_at": now, "report": report, "pdf": pdf_data}
+    return report, pdf_data
+
+
+def save_cached_report(key: str, report: dict[str, Any], pdf_data: bytes | None = None) -> None:
+    json_path, pdf_path = cache_paths(key)
+    json_path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    if pdf_data is not None:
+        pdf_path.write_bytes(pdf_data)
+    with REPORT_CACHE_LOCK:
+        REPORT_CACHE_MEMORY[key] = {
+            "created_at": datetime.now().timestamp(),
+            "report": report,
+            "pdf": pdf_data,
+        }
+
+
+def cached_report(report_date: str | None, report_url: str) -> tuple[dict[str, Any], str]:
+    effective_date = report_date or latest_business_day()
+    key = cache_key(effective_date, report_url)
+    ttl = cache_ttl_for_date(effective_date)
+    cached = load_cached_report(key, ttl)
+    if cached:
+        report, _ = cached
+        return report, key
+    report = build_report(effective_date, report_url)
+    save_cached_report(key, report)
+    return report, key
 
 
 def request_html(base: str, path: str, data: dict[str, str] | None = None) -> str:
@@ -1906,13 +1979,13 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/report":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", "public, max-age=300")
             self.end_headers()
             return
         if parsed.path == "/api/report.pdf":
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", "public, max-age=300")
             self.end_headers()
             return
         if parsed.path == "/":
@@ -1942,11 +2015,11 @@ class Handler(SimpleHTTPRequestHandler):
                 report_url = f"{PUBLIC_BASE_URL}/{report_query}" if report_query else PUBLIC_BASE_URL
             else:
                 report_url = f"{scheme}://{host}/{report_query}"
-            payload = build_report(report_date, report_url)
+            payload, _ = cached_report(report_date, report_url)
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", "public, max-age=300")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -1968,12 +2041,17 @@ class Handler(SimpleHTTPRequestHandler):
                 report_url = f"{PUBLIC_BASE_URL}/{report_query}" if report_query else PUBLIC_BASE_URL
             else:
                 report_url = f"http://{host}/{report_query}"
-            payload = build_report(report_date, report_url)
-            pdf_data = build_report_pdf(payload)
+            payload, key = cached_report(report_date, report_url)
+            ttl = cache_ttl_for_date(payload["meta"]["date"])
+            cached = load_cached_report(key, ttl)
+            pdf_data = cached[1] if cached else None
+            if pdf_data is None:
+                pdf_data = build_report_pdf(payload)
+                save_cached_report(key, payload, pdf_data)
             filename_date = payload["meta"]["date"].replace("/", "-")
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", "public, max-age=300")
             self.send_header("Content-Disposition", f'attachment; filename="{filename_date}-taifex-report.pdf"')
             self.send_header("Content-Length", str(len(pdf_data)))
             self.end_headers()
