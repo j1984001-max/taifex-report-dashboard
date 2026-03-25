@@ -32,6 +32,15 @@
             background: #0f172a;
         }
         .sr-chart { display: flex; flex-direction: column; gap: 8px; }
+        .sr-chart-scroll {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .sr-chart-inner {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
         .sr-chart-card { border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px; background: #fff; }
         .dark .sr-chart-card { border-color: #334155; background: #020617; }
         .sr-summary-grid {
@@ -331,52 +340,34 @@
         @media (max-width: 900px) {
             .sr-summary-grid { grid-template-columns: 1fr; }
             .sr-chart-card { padding: 14px; }
-            .sr-row {
-                grid-template-columns: 1fr;
-                gap: 8px;
-                padding: 12px;
-                border: 1px solid #e2e8f0;
-                border-radius: 16px;
-                background: #fff;
-                margin-bottom: 10px;
+            .sr-chart-inner {
+                min-width: 430px;
             }
-            .dark .sr-row { border-bottom-color: #334155; }
-            .dark .sr-row {
-                border-color: #334155;
-                background: #0f172a;
+            .sr-row {
+                grid-template-columns: minmax(150px, 1fr) 88px minmax(150px, 1fr);
+                gap: 8px;
+                min-width: 430px;
+                padding: 0;
+                border: 0;
+                background: transparent;
+                margin-bottom: 0;
             }
             .sr-side {
-                height: auto;
-                min-height: 46px;
-                padding-top: 4px;
-                padding-bottom: 4px;
-            }
-            .sr-side.call,
-            .sr-side.put {
-                justify-content: stretch;
-            }
-            .sr-side.call .sr-bar,
-            .sr-side.put .sr-bar {
-                left: 0;
-                right: auto;
+                height: 42px;
             }
             .sr-label {
-                width: 100%;
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                font-size: 15px;
-                padding: 0 12px;
+                font-size: 13px;
+                padding: 0 8px;
             }
             .sr-strike {
-                order: -1;
-                border-radius: 14px;
-                font-size: 28px;
-                padding: 12px 10px;
+                font-size: 18px;
+                padding: 8px 6px;
             }
             .sr-note {
                 margin-left: 6px;
-                margin-top: 6px;
             }
         }
         @media (max-width: 768px) {
@@ -960,9 +951,11 @@
                             </div>
                         </div>
                         <div class="mb-3 text-xs text-slate-500 dark:text-slate-400">
-                            左側為 Call OI 與增減，右側為 Put OI 與增減；長條越長代表未平倉量越大。
+                            左側為 Call OI 與增減，右側為 Put OI 與增減；長條越長代表未平倉量越大。手機版可左右滑動，維持與桌機版相同的左右對照閱讀。
                         </div>
-                        <div class="sr-chart">${rows}</div>
+                        <div class="sr-chart-scroll">
+                            <div class="sr-chart-inner">${rows}</div>
+                        </div>
                         ${renderBullets("本圖重點摘要", chart.highlights)}
                     </div>
                     </div>
