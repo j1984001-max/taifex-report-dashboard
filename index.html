@@ -602,6 +602,11 @@
             <h2 class="text-xl font-black text-red-700 dark:text-red-300 mb-2">資料載入失敗</h2>
             <p id="errorText" class="text-red-600 dark:text-red-200 text-sm"></p>
         </section>
+
+        <section id="fallbackNotice" class="hidden section-card rounded-2xl bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900 p-5">
+            <h2 class="text-lg font-black text-amber-800 dark:text-amber-200 mb-2">資料日期提示</h2>
+            <p id="fallbackNoticeText" class="text-sm leading-7 text-amber-700 dark:text-amber-100"></p>
+        </section>
     </main>
 
     <script>
@@ -609,6 +614,8 @@
         const reportDate = document.getElementById("reportDate");
         const errorBox = document.getElementById("errorBox");
         const errorText = document.getElementById("errorText");
+        const fallbackNotice = document.getElementById("fallbackNotice");
+        const fallbackNoticeText = document.getElementById("fallbackNoticeText");
         const refreshBtn = document.getElementById("refreshBtn");
         const datePicker = document.getElementById("datePicker");
         const shareLink = document.getElementById("shareLink");
@@ -1233,9 +1240,22 @@
             datePicker.value = `${y}-${m}-${d}`;
         }
 
+        function showFallbackNotice(actualDateText) {
+            const today = new Date();
+            const todayText = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}`;
+            if (!actualDateText || actualDateText >= todayText) {
+                fallbackNotice.classList.add("hidden");
+                fallbackNoticeText.textContent = "";
+                return;
+            }
+            fallbackNoticeText.textContent = `今日資料尚未公布，系統已自動切換到最近可用營業日 ${actualDateText}。若要查看其他歷史日期，可直接使用上方日期選擇器。`;
+            fallbackNotice.classList.remove("hidden");
+        }
+
         async function loadReport(forceRefresh = false) {
             refreshBtn.disabled = true;
             errorBox.classList.add("hidden");
+            fallbackNotice.classList.add("hidden");
             try {
                 const date = currentSelectedDate();
                 const loadingText = forceRefresh
@@ -1250,6 +1270,7 @@
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
                 syncDatePicker(data.meta.date);
+                showFallbackNotice(data.meta.date);
                 renderReport(data);
             } catch (error) {
                 errorBox.classList.remove("hidden");
