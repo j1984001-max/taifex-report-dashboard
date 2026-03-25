@@ -76,6 +76,8 @@ cd "/Users/wujohnson/workspace/New-project"
 python3 send_daily_push.py --date 2026/03/24
 ```
 
+此腳本完成後，若 `snapshots/` 有更新，還會自動 commit 並 push 到 GitHub，讓 Render 重新部署最新快照，之後網頁讀取會更快。
+
 ## Docker 部署
 
 ```bash

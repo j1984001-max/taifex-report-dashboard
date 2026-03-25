@@ -5,6 +5,7 @@ import argparse
 import json
 import ssl
 import smtplib
+import subprocess
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
@@ -107,6 +108,17 @@ def send_email(report: dict[str, object], pdf_data: bytes) -> str:
     return to_addr
 
 
+def publish_snapshot(report_date: str) -> str:
+    result = subprocess.run(
+        ["python3", "publish_snapshot.py", "--date", report_date.replace("/", "-")],
+        cwd=Path(__file__).resolve().parent,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return (result.stdout or "").strip()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Send the daily TAIFEX snapshot, Telegram summary, and email.")
     parser.add_argument("--date", help="Target report date in YYYY/MM/DD. Defaults to latest available business day.")
@@ -129,12 +141,14 @@ def main() -> None:
         results.append(send_telegram_message(token, args.chat_id, message))
 
     email_to = send_email(report, pdf_data)
+    publish_result = publish_snapshot(report["meta"]["date"])
 
     print(json.dumps({
         "date": report["meta"]["date"],
         "telegramMessages": len(results),
         "telegramMessageIds": [item.get("result", {}).get("message_id") for item in results],
         "emailTo": email_to,
+        "publishResult": publish_result,
     }, ensure_ascii=False))
 
 
