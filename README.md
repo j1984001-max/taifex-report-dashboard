@@ -60,6 +60,22 @@ python3 generate_snapshot.py --date 2026/03/24
 - `YYYY-MM-DD.json`
 - `YYYY-MM-DD.pdf`
 
+## 每日推送
+
+若要手動執行一次完整推送（先更新快照，再送 Telegram，再寄 Email + PDF）：
+
+```bash
+cd "/Users/wujohnson/workspace/New-project"
+python3 send_daily_push.py
+```
+
+指定日期：
+
+```bash
+cd "/Users/wujohnson/workspace/New-project"
+python3 send_daily_push.py --date 2026/03/24
+```
+
 ## Docker 部署
 
 ```bash
