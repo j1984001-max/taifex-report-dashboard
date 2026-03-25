@@ -108,6 +108,13 @@ def latest_business_day(today: datetime | None = None) -> str:
     return current.strftime("%Y/%m/%d")
 
 
+def previous_business_day(date_text: str) -> str:
+    current = datetime.strptime(date_text, "%Y/%m/%d") - timedelta(days=1)
+    while current.weekday() >= 5:
+        current -= timedelta(days=1)
+    return current.strftime("%Y/%m/%d")
+
+
 def cache_key(report_date: str, report_url: str) -> str:
     safe_date = report_date.replace("/", "-")
     safe_url = re.sub(r"[^A-Za-z0-9]+", "_", report_url).strip("_") or "default"
@@ -171,19 +178,36 @@ def invalidate_cached_report(key: str) -> None:
 
 
 def cached_report(report_date: str | None, report_url: str, force_refresh: bool = False) -> tuple[dict[str, Any], str]:
-    effective_date = report_date or latest_business_day()
-    key = cache_key(effective_date, report_url)
-    ttl = cache_ttl_for_date(effective_date)
-    if force_refresh:
-        invalidate_cached_report(key)
-    else:
-        cached = load_cached_report(key, ttl)
-        if cached:
-            report, _ = cached
+    candidate_dates = [report_date] if report_date else []
+    if not candidate_dates:
+        candidate = latest_business_day()
+        for _ in range(7):
+            candidate_dates.append(candidate)
+            candidate = previous_business_day(candidate)
+
+    last_error: Exception | None = None
+    for index, candidate_date in enumerate(candidate_dates):
+        key = cache_key(candidate_date, report_url)
+        ttl = cache_ttl_for_date(candidate_date)
+        should_force = force_refresh and index == 0
+        if should_force:
+            invalidate_cached_report(key)
+        else:
+            cached = load_cached_report(key, ttl)
+            if cached:
+                report, _ = cached
+                return report, key
+        try:
+            report = build_report(candidate_date, report_url)
+            save_cached_report(key, report)
             return report, key
-    report = build_report(effective_date, report_url)
-    save_cached_report(key, report)
-    return report, key
+        except Exception as exc:
+            last_error = exc
+            if report_date:
+                break
+            continue
+
+    raise last_error or ValueError("找不到可用報告資料")
 
 
 def request_html(base: str, path: str, data: dict[str, str] | None = None) -> str:
