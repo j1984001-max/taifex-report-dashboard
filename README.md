@@ -39,6 +39,27 @@ cd "/Users/wujohnson/workspace/New-project"
 python3 send_report_email.py --date 2026/03/24
 ```
 
+## 產生日快照
+
+若要把某天報表先跑好並留存成快照，之後使用者查詢同一天時就不必重新抓期交所：
+
+```bash
+cd "/Users/wujohnson/workspace/New-project"
+python3 generate_snapshot.py
+```
+
+指定日期：
+
+```bash
+cd "/Users/wujohnson/workspace/New-project"
+python3 generate_snapshot.py --date 2026/03/24
+```
+
+快照會存到 `snapshots/`，包含：
+
+- `YYYY-MM-DD.json`
+- `YYYY-MM-DD.pdf`
+
 ## Docker 部署
 
 ```bash

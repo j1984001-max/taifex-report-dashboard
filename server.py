@@ -31,6 +31,7 @@ HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8000"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://taifex-report-dashboard.onrender.com").rstrip("/")
 CACHE_DIR = ROOT / ".cache"
+SNAPSHOT_DIR = ROOT / "snapshots"
 LATEST_REPORT_CACHE_TTL = int(os.environ.get("LATEST_REPORT_CACHE_TTL", "21600"))
 HISTORICAL_REPORT_CACHE_TTL = int(os.environ.get("HISTORICAL_REPORT_CACHE_TTL", "604800"))
 TAIFEX = "https://www.taifex.com.tw"
@@ -48,6 +49,7 @@ TARGET_LARGE_TRADER = "臺股期貨(TX+MTX/4+TMF/20)"
 pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
 
 CACHE_DIR.mkdir(exist_ok=True)
+SNAPSHOT_DIR.mkdir(exist_ok=True)
 REPORT_CACHE_LOCK = threading.Lock()
 REPORT_CACHE_MEMORY: dict[str, dict[str, Any]] = {}
 
@@ -129,6 +131,31 @@ def cache_paths(key: str) -> tuple[Path, Path]:
     return CACHE_DIR / f"{key}.json", CACHE_DIR / f"{key}.pdf"
 
 
+def snapshot_paths(report_date: str) -> tuple[Path, Path]:
+    safe_date = report_date.replace("/", "-")
+    return SNAPSHOT_DIR / f"{safe_date}.json", SNAPSHOT_DIR / f"{safe_date}.pdf"
+
+
+def load_snapshot(report_date: str, report_url: str) -> tuple[dict[str, Any], bytes | None] | None:
+    json_path, pdf_path = snapshot_paths(report_date)
+    if not json_path.exists():
+        return None
+    try:
+        report = json.loads(json_path.read_text(encoding="utf-8"))
+        report["meta"]["reportUrl"] = report_url
+        pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
+        return report, pdf_data
+    except Exception:
+        return None
+
+
+def save_snapshot(report_date: str, report: dict[str, Any], pdf_data: bytes | None = None) -> None:
+    json_path, pdf_path = snapshot_paths(report_date)
+    json_path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    if pdf_data is not None:
+        pdf_path.write_bytes(pdf_data)
+
+
 def load_cached_report(key: str, ttl: int) -> tuple[dict[str, Any], bytes | None] | None:
     now = datetime.now().timestamp()
     with REPORT_CACHE_LOCK:
@@ -190,6 +217,12 @@ def cached_report(report_date: str | None, report_url: str, force_refresh: bool 
         key = cache_key(candidate_date, report_url)
         ttl = cache_ttl_for_date(candidate_date)
         should_force = force_refresh and index == 0
+        if not should_force:
+            snapshot = load_snapshot(candidate_date, report_url)
+            if snapshot:
+                report, pdf_data = snapshot
+                save_cached_report(key, report, pdf_data)
+                return report, key
         if should_force:
             invalidate_cached_report(key)
         else:
@@ -200,6 +233,7 @@ def cached_report(report_date: str | None, report_url: str, force_refresh: bool 
         try:
             report = build_report(candidate_date, report_url)
             save_cached_report(key, report)
+            save_snapshot(candidate_date, report)
             return report, key
         except Exception as exc:
             last_error = exc
@@ -2087,6 +2121,7 @@ class Handler(SimpleHTTPRequestHandler):
             if pdf_data is None:
                 pdf_data = build_report_pdf(payload)
                 save_cached_report(key, payload, pdf_data)
+                save_snapshot(payload["meta"]["date"], payload, pdf_data)
             filename_date = payload["meta"]["date"].replace("/", "-")
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
