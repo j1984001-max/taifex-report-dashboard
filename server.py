@@ -1876,6 +1876,9 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                 "title": "B. 三大法人期貨分契約詳細版",
                 "date": base_date,
                 "unit": "口、千元",
+                "cycleBasis": {
+                    "monthly": monthly_cycle_start_date,
+                },
                 "rows": futures_contracts,
                 "categoryAnalysis": futures_category_analysis,
                 "interpretation": "本表直接整理近月期貨分契約的法人多空與未平倉淨額，並補上與前一營業日及前五個營業日相比的未平倉淨額變動，用來看部位是否持續擴張或收斂。",
@@ -1889,6 +1892,10 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                 "title": "C. 大額交易人未沖銷詳細版",
                 "date": base_date,
                 "unit": "口、%",
+                "cycleBasis": {
+                    "weekly": weekly_cycle_start_date,
+                    "monthly": monthly_cycle_start_date,
+                },
                 "rows": large_trader_rows,
                 "interpretation": "本表用來看近月台股期貨大額交易人集中度，並將前五大與前十大之中特定法人合計一併拆開，觀察集中度是否由特定法人主導。",
                 "highlights": [

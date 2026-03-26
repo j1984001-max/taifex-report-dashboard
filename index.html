@@ -800,6 +800,12 @@
 
             return sectionShell(section.title, `
                 ${renderMeta(section)}
+                ${!isOption && section.cycleBasis ? `
+                    <div class="mb-4 text-sm leading-7">
+                        <span class="font-black">累積基準日：</span>
+                        月契約 ${escapeHtml(section.cycleBasis.monthly || "缺資料")}
+                    </div>
+                ` : ""}
                 <div class="table-wrap">
                     <table>
                         <thead>${head}</thead>
@@ -841,6 +847,12 @@
             `).join("");
             return sectionShell(section.title, `
                 ${renderMeta(section)}
+                ${section.cycleBasis ? `
+                    <div class="mb-4 text-sm leading-7">
+                        <span class="font-black">累積基準日：</span>
+                        週契約 ${escapeHtml(section.cycleBasis.weekly || "缺資料")} / 月契約 ${escapeHtml(section.cycleBasis.monthly || "缺資料")}
+                    </div>
+                ` : ""}
                 <div class="table-wrap">
                     <table>
                         <thead>
