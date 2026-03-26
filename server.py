@@ -117,6 +117,13 @@ def previous_business_day(date_text: str) -> str:
     return current.strftime("%Y/%m/%d")
 
 
+def next_business_day(date_text: str) -> str:
+    current = datetime.strptime(date_text, "%Y/%m/%d") + timedelta(days=1)
+    while current.weekday() >= 5:
+        current += timedelta(days=1)
+    return current.strftime("%Y/%m/%d")
+
+
 def cache_key(report_date: str, report_url: str) -> str:
     safe_date = report_date.replace("/", "-")
     safe_url = re.sub(r"[^A-Za-z0-9]+", "_", report_url).strip("_") or "default"
@@ -432,6 +439,27 @@ def cycle_start_thursday(report_date: str) -> str:
     current = datetime.strptime(report_date, "%Y/%m/%d")
     thursday = current - timedelta(days=(current.weekday() - 3) % 7)
     return thursday.strftime("%Y/%m/%d")
+
+
+def third_wednesday(year: int, month: int) -> str:
+    current = datetime(year, month, 1)
+    while current.weekday() != 2:
+        current += timedelta(days=1)
+    current += timedelta(days=14)
+    return current.strftime("%Y/%m/%d")
+
+
+def monthly_cycle_start(monthly_code: str) -> str:
+    year = int(monthly_code[:4])
+    month = int(monthly_code[4:])
+    if month == 1:
+        prev_year = year - 1
+        prev_month = 12
+    else:
+        prev_year = year
+        prev_month = month - 1
+    settlement_day = third_wednesday(prev_year, prev_month)
+    return next_business_day(settlement_day)
 
 
 def enrich_futures_with_history(
@@ -1752,11 +1780,15 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     oi_change = parse_oi_change(oi_change_table, effective_date)
     base_date = oi_change["date"] or effective_date
     futures_history = fetch_futures_history_rows(base_date, 5)
-    cycle_start_date = cycle_start_thursday(base_date)
-    cycle_start_rows = futures_contracts if cycle_start_date == base_date else fetch_futures_rows_for_date(cycle_start_date)
+    monthly_cycle_start_date = monthly_cycle_start(tx_reference["contract"])
+    weekly_cycle_start_date = cycle_start_thursday(base_date)
+    cycle_start_rows = futures_contracts if monthly_cycle_start_date == base_date else fetch_futures_rows_for_date(monthly_cycle_start_date)
     large_previous_date, large_previous_rows = fetch_previous_large_trader_business_day(base_date, tx_reference["contract"])
-    large_cycle_rows = large_trader_rows if cycle_start_date == base_date else fetch_large_trader_for_date(cycle_start_date, tx_reference["contract"])
-    futures_contracts = enrich_futures_with_history(futures_contracts, futures_history, cycle_start_rows, cycle_start_date)
+    large_cycle_rows = {
+        "weekly": large_trader_rows if weekly_cycle_start_date == base_date else fetch_large_trader_for_date(weekly_cycle_start_date, tx_reference["contract"]),
+        "monthly": large_trader_rows if monthly_cycle_start_date == base_date else fetch_large_trader_for_date(monthly_cycle_start_date, tx_reference["contract"]),
+    }
+    futures_contracts = enrich_futures_with_history(futures_contracts, futures_history, cycle_start_rows, monthly_cycle_start_date)
     futures_category_analysis = build_futures_category_analysis(futures_contracts)
     futures_delta_overview = build_futures_delta_overview(futures_contracts)
     previous_option_market_date = oi_change["previousDate"]
@@ -1986,7 +2018,10 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         f"自營商臺指選擇權未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_contracts if row['institution'] == '自營商'))} 口；投信臺指選擇權未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_contracts if row['institution'] == '投信'))} 口。",
     ]
     previous_by_type = {row["contractType"]: row for row in (large_previous_rows or [])}
-    cycle_by_type = {row["contractType"]: row for row in (large_cycle_rows or [])}
+    cycle_by_type = {
+        "weekly": {row["contractType"]: row for row in (large_cycle_rows.get("weekly") or [])}.get("weekly"),
+        "monthly": {row["contractType"]: row for row in (large_cycle_rows.get("monthly") or [])}.get("monthly"),
+    }
     large_highlights = [
         f"前五大買方 {format_number(large_trader['longTop5Qty'])} 口、占比 {large_trader['longTop5Pct']:.1f}%；其中特定法人 {specific_value_text(large_trader['longTop5SpecificQty'])} 口、占比 {specific_pct_text(large_trader['longTop5SpecificPct'])}。",
         f"前十大買方 {format_number(large_trader['longTop10Qty'])} 口、占比 {large_trader['longTop10Pct']:.1f}%；較前五大再增加 {format_number(long_top10_add_qty)} 口、占比增加 {long_top10_add_pct:+.1f} 個百分點；其中特定法人 {specific_value_text(large_trader['longTop10SpecificQty'])} 口。",
@@ -2006,15 +2041,16 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         long10_cycle = None if not cycle or cycle["longTop10SpecificQty"] is None else row["longTop10SpecificQty"] - cycle["longTop10SpecificQty"]
         short5_cycle = None if not cycle or cycle["shortTop5SpecificQty"] is None else row["shortTop5SpecificQty"] - cycle["shortTop5SpecificQty"]
         short10_cycle = None if not cycle or cycle["shortTop10SpecificQty"] is None else row["shortTop10SpecificQty"] - cycle["shortTop10SpecificQty"]
+        cycle_label_date = weekly_cycle_start_date if row["contractType"] == "weekly" else monthly_cycle_start_date
         report["changeOverview"]["largeTraderSummary"].append(
             (
                 f"{row['contractLabel']}特定法人買方：前五大目前 {specific_value_text(row['longTop5SpecificQty'])} 口，較前一營業日 "
                 f"{format_signed(long5_day)}，"
-                f"自 {cycle_start_date} 起累積 "
+                f"自 {cycle_label_date} 起累積 "
                 f"{format_signed(long5_cycle)}；"
                 f"前十大目前 {specific_value_text(row['longTop10SpecificQty'])} 口，較前一營業日 "
                 f"{format_signed(long10_day)}，"
-                f"自 {cycle_start_date} 起累積 "
+                f"自 {cycle_label_date} 起累積 "
                 f"{format_signed(long10_cycle)}。"
             )
         )
@@ -2022,19 +2058,19 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
             (
                 f"{row['contractLabel']}特定法人賣方：前五大目前 {specific_value_text(row['shortTop5SpecificQty'])} 口，較前一營業日 "
                 f"{format_signed(short5_day)}，"
-                f"自 {cycle_start_date} 起累積 "
+                f"自 {cycle_label_date} 起累積 "
                 f"{format_signed(short5_cycle)}；"
                 f"前十大目前 {specific_value_text(row['shortTop10SpecificQty'])} 口，較前一營業日 "
                 f"{format_signed(short10_day)}，"
-                f"自 {cycle_start_date} 起累積 "
+                f"自 {cycle_label_date} 起累積 "
                 f"{format_signed(short10_cycle)}。"
             )
         )
         large_highlights.append(
-            f"{row['contractLabel']}特定法人買方變動：前五大較前一營業日 {format_signed(long5_day)}、自 {cycle_start_date} 起累積 {format_signed(long5_cycle)}；前十大較前一營業日 {format_signed(long10_day)}、自 {cycle_start_date} 起累積 {format_signed(long10_cycle)}。"
+            f"{row['contractLabel']}特定法人買方變動：前五大較前一營業日 {format_signed(long5_day)}、自 {cycle_label_date} 起累積 {format_signed(long5_cycle)}；前十大較前一營業日 {format_signed(long10_day)}、自 {cycle_label_date} 起累積 {format_signed(long10_cycle)}。"
         )
         large_highlights.append(
-            f"{row['contractLabel']}特定法人賣方變動：前五大較前一營業日 {format_signed(short5_day)}、自 {cycle_start_date} 起累積 {format_signed(short5_cycle)}；前十大較前一營業日 {format_signed(short10_day)}、自 {cycle_start_date} 起累積 {format_signed(short10_cycle)}。"
+            f"{row['contractLabel']}特定法人賣方變動：前五大較前一營業日 {format_signed(short5_day)}、自 {cycle_label_date} 起累積 {format_signed(short5_cycle)}；前十大較前一營業日 {format_signed(short10_day)}、自 {cycle_label_date} 起累積 {format_signed(short10_cycle)}。"
         )
 
     report["tables"]["C"]["highlights"] = large_highlights
