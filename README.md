@@ -100,6 +100,8 @@ python3 send_daily_push.py --date 2026/03/24
 4. 寄送 Email + PDF
 5. 將快照 push 回 GitHub，讓 Render 重新部署
 
+若 workflow 失敗，會額外發一則 Telegram 告警，附上 GitHub Actions 執行連結。
+
 ## Docker 部署
 
 ```bash
