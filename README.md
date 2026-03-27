@@ -92,7 +92,7 @@ python3 send_daily_push.py --date 2026/03/24
 
 - [.github/workflows/daily-push.yml](/Users/wujohnson/workspace/New-project/.github/workflows/daily-push.yml)
 
-這個 workflow 會在平日台灣時間 15:10 自動：
+這個 workflow 會在平日台灣時間 15:00 自動開始：
 
 1. 抓最新可用 TAIFEX 報告
 2. 產生日快照
@@ -100,7 +100,7 @@ python3 send_daily_push.py --date 2026/03/24
 4. 寄送 Email + PDF
 5. 將快照 push 回 GitHub，讓 Render 重新部署
 
-若 workflow 失敗，會額外發一則 Telegram 告警，附上 GitHub Actions 執行連結。
+若 15:00 抓到的資料不完整，workflow 會自動等待 5 分鐘後重抓，最多再試 2 次；若最後仍失敗，會額外發一則 Telegram 告警，附上 GitHub Actions 執行連結。
 
 ## Docker 部署
 

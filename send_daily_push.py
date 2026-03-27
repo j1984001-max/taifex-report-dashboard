@@ -7,6 +7,7 @@ import os
 import ssl
 import smtplib
 import subprocess
+import time
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
@@ -17,6 +18,8 @@ from server import PUBLIC_BASE_URL, build_report_pdf, cached_report, save_snapsh
 
 TELEGRAM_LIMIT = 3500
 DEFAULT_TELEGRAM_CHAT_ID = "7154157141"
+DEFAULT_RETRY_DELAY_SECONDS = 300
+DEFAULT_MAX_RETRIES = 2
 
 
 def parse_dotenv(path: Path) -> dict[str, str]:
@@ -130,15 +133,47 @@ def publish_snapshot(report_date: str) -> str:
     return (result.stdout or "").strip()
 
 
+def report_is_ready(report: dict[str, object]) -> tuple[bool, str]:
+    tables = report.get("tables", {})
+    for key in ["A", "B", "C", "D"]:
+        rows = tables.get(key, {}).get("rows", [])
+        if not rows:
+            return False, f"{key} 缺少 rows"
+    charts = tables.get("E", {}).get("charts", [])
+    if len(charts) < 3:
+        return False, "E 支撐壓力圖不足 3 張"
+    g_rows = tables.get("G", {}).get("rows", [])
+    if not g_rows:
+        return False, "G PCR 無資料"
+    return True, "ok"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Send the daily TAIFEX snapshot, Telegram summary, and email.")
     parser.add_argument("--date", help="Target report date in YYYY/MM/DD. Defaults to latest available business day.")
     parser.add_argument("--chat-id", default=os.environ.get("TELEGRAM_CHAT_ID", DEFAULT_TELEGRAM_CHAT_ID), help="Telegram chat id.")
+    parser.add_argument("--max-retries", type=int, default=int(os.environ.get("REPORT_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))), help="Max retries when the report is not ready.")
+    parser.add_argument("--retry-delay", type=int, default=int(os.environ.get("REPORT_RETRY_DELAY_SECONDS", str(DEFAULT_RETRY_DELAY_SECONDS))), help="Retry delay in seconds when the report is not ready.")
     args = parser.parse_args()
 
     requested_date = args.date
     report_url = f"{PUBLIC_BASE_URL}/?date={requested_date}" if requested_date else PUBLIC_BASE_URL
-    report, _ = cached_report(requested_date, report_url, force_refresh=True)
+    attempts = args.max_retries + 1
+    last_reason = "unknown"
+    report = None
+    for index in range(attempts):
+        report, _ = cached_report(requested_date, report_url, force_refresh=True)
+        ready, last_reason = report_is_ready(report)
+        if ready:
+            break
+        if index < attempts - 1:
+            time.sleep(args.retry_delay)
+    if report is None:
+        raise RuntimeError("無法建立報表")
+    ready, last_reason = report_is_ready(report)
+    if not ready:
+        raise RuntimeError(f"報表資料仍未完整：{last_reason}")
+
     pdf_data = build_report_pdf(report)
     save_snapshot(report["meta"]["date"], report, pdf_data)
 

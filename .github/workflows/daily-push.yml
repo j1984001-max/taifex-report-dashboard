@@ -2,7 +2,7 @@ name: Daily TAIFEX Push
 
 on:
   schedule:
-    - cron: "10 7 * * 1-5"
+    - cron: "0 7 * * 1-5"
   workflow_dispatch:
 
 jobs:
@@ -38,6 +38,8 @@ jobs:
           GMAIL_TO: ${{ secrets.GMAIL_TO }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
+          REPORT_MAX_RETRIES: "2"
+          REPORT_RETRY_DELAY_SECONDS: "300"
         run: python3 send_daily_push.py
 
       - name: Alert Telegram on failure
