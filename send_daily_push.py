@@ -32,6 +32,13 @@ def parse_dotenv(path: Path) -> dict[str, str]:
     return values
 
 
+def clean_secret(value: str | None, *, strip_all_spaces: bool = False) -> str:
+    cleaned = (value or "").replace("\xa0", " ").strip()
+    if strip_all_spaces:
+        cleaned = "".join(cleaned.split())
+    return cleaned
+
+
 def load_telegram_token() -> str:
     env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if env_token:
@@ -86,9 +93,9 @@ def build_quick_overview(report: dict[str, object]) -> str:
 
 def send_email(report: dict[str, object], pdf_data: bytes) -> str:
     env = parse_dotenv(Path.home() / "yt_digest" / ".env")
-    user = os.environ.get("GMAIL_USER") or env["GMAIL_USER"]
-    password = os.environ.get("GMAIL_APP_PASSWORD") or env["GMAIL_APP_PASSWORD"]
-    to_addr = os.environ.get("GMAIL_TO") or env["GMAIL_TO"]
+    user = clean_secret(os.environ.get("GMAIL_USER") or env["GMAIL_USER"])
+    password = clean_secret(os.environ.get("GMAIL_APP_PASSWORD") or env["GMAIL_APP_PASSWORD"], strip_all_spaces=True)
+    to_addr = clean_secret(os.environ.get("GMAIL_TO") or env["GMAIL_TO"])
     report_date = report["meta"]["date"]
     page_url = report["meta"]["reportUrl"]
     pdf_url = f"{PUBLIC_BASE_URL}/api/report.pdf?date={report_date}"
