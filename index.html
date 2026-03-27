@@ -184,34 +184,6 @@
             gap: 8px;
             flex-wrap: wrap;
         }
-        .share-card {
-            display: none;
-            margin-top: 12px;
-            padding: 14px;
-            border-radius: 16px;
-            border: 1px solid #dbeafe;
-            background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
-        }
-        .dark .share-card {
-            border-color: #1d4ed8;
-            background: linear-gradient(135deg, rgba(12, 74, 110, 0.45) 0%, rgba(15, 23, 42, 0.95) 100%);
-        }
-        .share-card-label {
-            font-size: 12px;
-            font-weight: 800;
-            letter-spacing: 0.04em;
-            color: #1d4ed8;
-        }
-        .dark .share-card-label { color: #93c5fd; }
-        .share-card-url {
-            display: block;
-            margin-top: 6px;
-            word-break: break-all;
-            font-size: 13px;
-            line-height: 1.6;
-            color: #0f172a;
-        }
-        .dark .share-card-url { color: #e2e8f0; }
         .section-meta-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -417,9 +389,6 @@
             .share-link {
                 display: none;
             }
-            .share-card {
-                display: block;
-            }
             main {
                 padding-top: 20px;
             }
@@ -462,7 +431,6 @@
             }
             nav,
             #errorBox,
-            #mobileShareCard,
             .sr-tab-bar,
             .sr-summary-grid button,
             #shareBtn,
@@ -550,17 +518,12 @@
                     <button id="nextDayBtn" class="nav-btn">後一日</button>
                 </div>
                 <div class="control-group">
-                    <input id="shareLink" type="text" readonly class="hidden lg:block share-link" />
                     <button id="shareBtn" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-sm font-bold">分享連結</button>
                     <button id="pdfBtn" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-sm font-bold">下載 PDF</button>
                     <button id="refreshBtn" class="px-3 py-2 rounded-lg bg-sky-600 text-white text-sm font-bold hover:bg-sky-700">重新抓取</button>
                     <button id="themeBtn" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-sm font-bold">深色切換</button>
                 </div>
             </div>
-            </div>
-            <div id="mobileShareCard" class="share-card">
-                <div class="share-card-label">本機可分享網址</div>
-                <span id="mobileShareUrl" class="share-card-url">讀取中</span>
             </div>
         </div>
     </nav>
@@ -609,12 +572,12 @@
         const fallbackNoticeText = document.getElementById("fallbackNoticeText");
         const refreshBtn = document.getElementById("refreshBtn");
         const datePicker = document.getElementById("datePicker");
-        const shareLink = document.getElementById("shareLink");
         const shareBtn = document.getElementById("shareBtn");
         const pdfBtn = document.getElementById("pdfBtn");
         const prevDayBtn = document.getElementById("prevDayBtn");
         const nextDayBtn = document.getElementById("nextDayBtn");
-        const mobileShareUrl = document.getElementById("mobileShareUrl");
+        let currentReportUrl = window.location.href;
+        const lazyCopyTexts = {};
 
         function escapeHtml(text) {
             return String(text ?? "")
@@ -1185,21 +1148,40 @@
             `);
         }
 
-        function renderCopySection(title, text) {
+        function renderCopySection(id, title, text) {
+            lazyCopyTexts[id] = text;
             return sectionShell(title, `
                 <div class="text-sm mb-4 text-slate-500 dark:text-slate-400">可直接複製使用</div>
-                <div class="copy-block text-sm leading-7 p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">${escapeHtml(text)}</div>
+                <button type="button" class="nav-btn" data-copy-toggle="${id}">展開內容</button>
+                <div class="hidden mt-4" data-copy-content="${id}"></div>
             `);
+        }
+
+        function bindLazyCopySections() {
+            reportRoot.querySelectorAll("[data-copy-toggle]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const id = button.getAttribute("data-copy-toggle");
+                    const container = reportRoot.querySelector(`[data-copy-content="${id}"]`);
+                    if (!container) return;
+                    if (container.dataset.rendered !== "1") {
+                        container.innerHTML = `
+                            <div class="copy-block text-sm leading-7 p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">${escapeHtml(lazyCopyTexts[id] || "")}</div>
+                        `;
+                        container.dataset.rendered = "1";
+                    }
+                    container.classList.toggle("hidden");
+                    button.textContent = container.classList.contains("hidden") ? "展開內容" : "收合內容";
+                });
+            });
         }
 
         function renderReport(report) {
             const tables = report.tables;
             reportDate.textContent = `資料日期：${report.meta.date}`;
             document.title = `${report.meta.date} 台指期貨 / 選擇權籌碼完整報告`;
-            shareLink.value = report.meta.reportUrl || window.location.href;
-            mobileShareUrl.textContent = report.meta.reportUrl || window.location.href;
+            currentReportUrl = report.meta.reportUrl || window.location.href;
             if (window.history && window.history.replaceState) {
-                const nextUrl = new URL(report.meta.reportUrl || window.location.href, window.location.origin);
+                const nextUrl = new URL(currentReportUrl, window.location.origin);
                 window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}`);
             }
             reportRoot.innerHTML = [
@@ -1212,8 +1194,8 @@
                 renderTableF(tables.F),
                 renderTableG(tables.G),
                 renderAnalysis(report),
-                renderCopySection("I. Telegram 精簡版", report.telegram),
-                renderCopySection("J. Email 完整版", report.email),
+                renderCopySection("telegram-copy", "I. Telegram 精簡版", report.telegram),
+                renderCopySection("email-copy", "J. Email 完整版", report.email),
             ].join("");
 
             const eSection = reportRoot.querySelector(".section-card:nth-of-type(6)");
@@ -1222,6 +1204,7 @@
                     node.addEventListener("click", () => activateSrChart(eSection, node.getAttribute("data-sr-target")));
                 });
             }
+            bindLazyCopySections();
         }
 
         function currentSelectedDate() {
@@ -1298,7 +1281,7 @@
             window.open(`/api/report.pdf${query}`, "_blank");
         });
         shareBtn.addEventListener("click", async () => {
-            const url = shareLink.value || window.location.href;
+            const url = currentReportUrl || window.location.href;
             if (navigator.share) {
                 try {
                     await navigator.share({ title: "台指期權籌碼報告", url });
@@ -1307,7 +1290,6 @@
             }
             try {
                 await navigator.clipboard.writeText(url);
-                if (mobileShareUrl) mobileShareUrl.textContent = url;
                 shareBtn.textContent = "已複製";
                 setTimeout(() => { shareBtn.textContent = "分享連結"; }, 1200);
             } catch (_) {}
