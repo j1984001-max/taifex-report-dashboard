@@ -1233,6 +1233,67 @@ def trend_arrow(delta: float) -> str:
     return "→"
 
 
+def summarize_oi_focus(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "缺少 ATM 附近履約價資料，無法判讀近檔 OI 增減方向。"
+    call_change = sum((row.get("callChange") or 0) for row in rows)
+    put_change = sum((row.get("putChange") or 0) for row in rows)
+    strongest_put = max(rows, key=lambda row: row.get("putChange") or 0)
+    strongest_call = max(rows, key=lambda row: row.get("callChange") or 0)
+    if put_change - call_change >= 200:
+        return (
+            f"ATM 附近賣權增倉較明顯，合計 Put 增減 {format_signed(put_change)}、"
+            f"高於 Call 的 {format_signed(call_change)}；其中 {strongest_put['strike']:,} 履約價 Put 增倉 {format_signed(strongest_put['putChange'])} 最突出。"
+        )
+    if call_change - put_change >= 200:
+        return (
+            f"ATM 附近買權增倉較明顯，合計 Call 增減 {format_signed(call_change)}、"
+            f"高於 Put 的 {format_signed(put_change)}；其中 {strongest_call['strike']:,} 履約價 Call 增倉 {format_signed(strongest_call['callChange'])} 最突出。"
+        )
+    return (
+        f"ATM 附近 Call 與 Put 增倉差距不大，Call 合計 {format_signed(call_change)}、Put 合計 {format_signed(put_change)}，"
+        "近檔籌碼偏向拉鋸。"
+    )
+
+
+def summarize_pc_ratio(rows: list[dict[str, Any]]) -> list[str]:
+    if not rows:
+        return [
+            "缺資料。",
+            "官方 PCR 端點未回傳資料列，且自行計算亦未取得有效資料。",
+            "請以來源頁面再確認。"
+        ]
+    latest = rows[0]
+    previous = rows[1] if len(rows) >= 2 else None
+    highlights = [
+        f"最新一筆 {latest['date']}：成交量 PCR {latest['volumeRatio']:.2f}%，未平倉量 PCR {latest['oiRatio']:.2f}%。",
+        f"最新一筆賣權成交量 {format_number(latest['putVolume'])}，買權成交量 {format_number(latest['callVolume'])}；賣權未平倉量 {format_number(latest['putOi'])}，買權未平倉量 {format_number(latest['callOi'])}。",
+    ]
+    if previous:
+        highlights.append(
+            f"五日趨勢：成交量 PCR {trend_arrow(latest['volumeRatio'] - rows[-1]['volumeRatio'])} "
+            f"{rows[-1]['volumeRatio']:.2f}% → {latest['volumeRatio']:.2f}%，"
+            f"未平倉量 PCR {trend_arrow(latest['oiRatio'] - rows[-1]['oiRatio'])} "
+            f"{rows[-1]['oiRatio']:.2f}% → {latest['oiRatio']:.2f}%。"
+        )
+        oi_delta = latest["oiRatio"] - previous["oiRatio"]
+        if latest["oiRatio"] >= 110:
+            highlights.append(
+                f"未平倉量 PCR 高於 110%，代表賣權未平倉量明顯高於買權；較前一筆 {previous['date']} {format_signed(round(oi_delta, 2))} 個百分點，情緒偏向保護性或偏空避險。"
+            )
+        elif latest["oiRatio"] >= 100:
+            highlights.append(
+                f"未平倉量 PCR 站上 100%，表示賣權未平倉量略高於買權；較前一筆 {previous['date']} {format_signed(round(oi_delta, 2))} 個百分點，情緒偏中性偏保守。"
+            )
+        else:
+            highlights.append(
+                f"未平倉量 PCR 低於 100%，表示買權未平倉量高於賣權；較前一筆 {previous['date']} {format_signed(round(oi_delta, 2))} 個百分點，情緒偏向風險承擔。"
+            )
+    else:
+        highlights.append("趨勢比較缺少前一筆資料，僅能先看當前水位。")
+    return highlights
+
+
 def specific_value_text(value: int | None) -> str:
     return format_number(value) if value is not None else "缺資料"
 
@@ -1944,6 +2005,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                         if oi_change["change"] is not None else
                         "官方整體未平倉量增減表本日回傳缺資料。"
                     ),
+                    summarize_oi_focus(oi_change_detail),
                     "履約價增減為以當日近月序列 OI 減去前一交易日同序列 OI 計算。",
                 ],
                 "sources": [
@@ -1962,24 +2024,9 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                     if pc_ratio_method == "official"
                     else "本表因官方 PCR 端點未回傳資料列，改用期交所 optDailyMarketExcel 將 TXO 全部序列的 Put/Call 成交量與未平倉量加總計算。"
                 ),
-                "highlights": (
-                    [
-                        f"最新一筆 {pc_ratio[0]['date']}：成交量 PCR {pc_ratio[0]['volumeRatio']:.2f}%，未平倉量 PCR {pc_ratio[0]['oiRatio']:.2f}%。",
-                        f"最新一筆賣權成交量 {format_number(pc_ratio[0]['putVolume'])}，買權成交量 {format_number(pc_ratio[0]['callVolume'])}；賣權未平倉量 {format_number(pc_ratio[0]['putOi'])}，買權未平倉量 {format_number(pc_ratio[0]['callOi'])}。",
-                        (
-                            f"五日趨勢：成交量 PCR {trend_arrow(pc_ratio[0]['volumeRatio'] - pc_ratio[-1]['volumeRatio'])} "
-                            f"{pc_ratio[-1]['volumeRatio']:.2f}% → {pc_ratio[0]['volumeRatio']:.2f}%，"
-                            f"未平倉量 PCR {trend_arrow(pc_ratio[0]['oiRatio'] - pc_ratio[-1]['oiRatio'])} "
-                            f"{pc_ratio[-1]['oiRatio']:.2f}% → {pc_ratio[0]['oiRatio']:.2f}%。"
-                            if len(pc_ratio) >= 2 else "五日趨勢缺資料。"
-                        ),
-                        "本表官方定義為週契約與各到期月份契約合併計算。" if pc_ratio_method == "official" else "本表為自行計算口徑：TXO 全部序列合計。"
-                    ] if pc_ratio else [
-                        "缺資料。",
-                        "官方 PCR 端點未回傳資料列，且自行計算亦未取得有效資料。",
-                        "請以來源頁面再確認。"
-                    ]
-                ),
+                "highlights": summarize_pc_ratio(pc_ratio) + [
+                    "本表官方定義為週契約與各到期月份契約合併計算。" if pc_ratio_method == "official" else "本表為自行計算口徑：TXO 全部序列合計。"
+                ],
                 "sources": [f"{BQ888}/cht/3/pcRatioDown"] if pc_ratio_method == "official" else [f"{TAIFEX}/cht/3/optDailyMarketExcel", f"{BQ888}/cht/3/pcRatioDown"],
             },
         },
