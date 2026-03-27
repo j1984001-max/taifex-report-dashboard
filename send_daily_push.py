@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import ssl
 import smtplib
 import subprocess
@@ -32,6 +33,9 @@ def parse_dotenv(path: Path) -> dict[str, str]:
 
 
 def load_telegram_token() -> str:
+    env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if env_token:
+        return env_token
     config_path = Path.home() / ".openclaw" / "openclaw.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     return config["channels"]["telegram"]["botToken"]
@@ -82,9 +86,9 @@ def build_quick_overview(report: dict[str, object]) -> str:
 
 def send_email(report: dict[str, object], pdf_data: bytes) -> str:
     env = parse_dotenv(Path.home() / "yt_digest" / ".env")
-    user = env["GMAIL_USER"]
-    password = env["GMAIL_APP_PASSWORD"]
-    to_addr = env["GMAIL_TO"]
+    user = os.environ.get("GMAIL_USER") or env["GMAIL_USER"]
+    password = os.environ.get("GMAIL_APP_PASSWORD") or env["GMAIL_APP_PASSWORD"]
+    to_addr = os.environ.get("GMAIL_TO") or env["GMAIL_TO"]
     report_date = report["meta"]["date"]
     page_url = report["meta"]["reportUrl"]
     pdf_url = f"{PUBLIC_BASE_URL}/api/report.pdf?date={report_date}"
@@ -122,7 +126,7 @@ def publish_snapshot(report_date: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Send the daily TAIFEX snapshot, Telegram summary, and email.")
     parser.add_argument("--date", help="Target report date in YYYY/MM/DD. Defaults to latest available business day.")
-    parser.add_argument("--chat-id", default=DEFAULT_TELEGRAM_CHAT_ID, help="Telegram chat id.")
+    parser.add_argument("--chat-id", default=os.environ.get("TELEGRAM_CHAT_ID", DEFAULT_TELEGRAM_CHAT_ID), help="Telegram chat id.")
     args = parser.parse_args()
 
     requested_date = args.date

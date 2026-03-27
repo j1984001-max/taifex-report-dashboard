@@ -78,6 +78,28 @@ python3 send_daily_push.py --date 2026/03/24
 
 此腳本完成後，若 `snapshots/` 有更新，還會自動 commit 並 push 到 GitHub，讓 Render 重新部署最新快照，之後網頁讀取會更快。
 
+## GitHub Actions 雲端排程
+
+若要讓網站在你的電腦關機時也能自動抓資料、送 Telegram、寄 Email + PDF，請在 GitHub repo 設定以下 Secrets：
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+- `GMAIL_USER`
+- `GMAIL_TO`
+- `GMAIL_APP_PASSWORD`
+
+專案已包含：
+
+- [.github/workflows/daily-push.yml](/Users/wujohnson/workspace/New-project/.github/workflows/daily-push.yml)
+
+這個 workflow 會在平日台灣時間 15:10 自動：
+
+1. 抓最新可用 TAIFEX 報告
+2. 產生日快照
+3. 發送 Telegram
+4. 寄送 Email + PDF
+5. 將快照 push 回 GitHub，讓 Render 重新部署
+
 ## Docker 部署
 
 ```bash
