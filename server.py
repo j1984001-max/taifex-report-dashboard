@@ -882,6 +882,112 @@ def parse_option_contracts(table: list[list[str]]) -> list[dict[str, Any]]:
     return rows
 
 
+def fetch_option_history_rows(report_date: str, count: int = 5) -> list[dict[str, Any]]:
+    history: list[dict[str, Any]] = []
+    current = datetime.strptime(report_date, "%Y/%m/%d") - timedelta(days=1)
+    checked = 0
+    while len(history) < count and checked < 20:
+        date_text = current.strftime("%Y/%m/%d")
+        try:
+            html = request_html(
+                TAIFEX,
+                "/cht/3/optContractsDateExcel",
+                {"queryType": "1", "queryDate": date_text, "commodityId": ""},
+            )
+            table = find_table(parse_tables(html), "商品 名稱")
+            rows = parse_option_contracts(table)
+            if rows:
+                history.append({"date": date_text, "rows": rows})
+        except Exception:
+            pass
+        current -= timedelta(days=1)
+        checked += 1
+    return history
+
+
+def fetch_option_rows_for_date(report_date: str) -> list[dict[str, Any]]:
+    html = request_html(
+        TAIFEX,
+        "/cht/3/optContractsDateExcel",
+        {"queryType": "1", "queryDate": report_date, "commodityId": ""},
+    )
+    table = find_table(parse_tables(html), "商品 名稱")
+    return parse_option_contracts(table)
+
+
+def enrich_option_with_history(
+    current_rows: list[dict[str, Any]],
+    history: list[dict[str, Any]],
+    cycle_start_rows: list[dict[str, Any]],
+    cycle_start_date: str,
+) -> list[dict[str, Any]]:
+    previous_map = {
+        row["institution"]: row
+        for row in (history[0]["rows"] if history else [])
+    }
+    cycle_start_map = {
+        row["institution"]: row
+        for row in cycle_start_rows
+    }
+    previous_date = history[0]["date"] if history else None
+
+    enriched = []
+    for row in current_rows:
+        prev = previous_map.get(row["institution"])
+        cycle = cycle_start_map.get(row["institution"])
+        prev_oi_long = prev["oiLongQty"] if prev else None
+        prev_oi_short = prev["oiShortQty"] if prev else None
+        prev_oi_net = prev["oiNetQty"] if prev else None
+        cycle_oi_long = cycle["oiLongQty"] if cycle else None
+        cycle_oi_short = cycle["oiShortQty"] if cycle else None
+        cycle_oi_net = cycle["oiNetQty"] if cycle else None
+        enriched.append(
+            {
+                **row,
+                "previousDate": previous_date,
+                "previousOiLongQty": prev_oi_long,
+                "previousOiShortQty": prev_oi_short,
+                "previousOiNetQty": prev_oi_net,
+                "dayChangeOiLongQty": None if prev_oi_long is None else row["oiLongQty"] - prev_oi_long,
+                "dayChangeOiShortQty": None if prev_oi_short is None else row["oiShortQty"] - prev_oi_short,
+                "dayChangeOiNetQty": None if prev_oi_net is None else row["oiNetQty"] - prev_oi_net,
+                "cycleStartDate": cycle_start_date,
+                "cycleStartOiLongQty": cycle_oi_long,
+                "cycleStartOiShortQty": cycle_oi_short,
+                "cycleStartOiNetQty": cycle_oi_net,
+                "cycleChangeOiLongQty": None if cycle_oi_long is None else row["oiLongQty"] - cycle_oi_long,
+                "cycleChangeOiShortQty": None if cycle_oi_short is None else row["oiShortQty"] - cycle_oi_short,
+                "cycleChangeOiNetQty": None if cycle_oi_net is None else row["oiNetQty"] - cycle_oi_net,
+            }
+        )
+    return enriched
+
+
+def build_option_delta_overview(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    highlights = []
+    for row in rows:
+        highlights.append(
+            f"{row['institution']}：選擇權未平倉淨額 {format_signed(row['oiNetQty'])} 口，較前一營業日 {format_signed(row['dayChangeOiNetQty'])} 口，自 {row['cycleStartDate']} 起累積 {format_signed(row['cycleChangeOiNetQty'])} 口；多方 {format_signed(row['dayChangeOiLongQty'])} / {format_signed(row['cycleChangeOiLongQty'])}，空方 {format_signed(row['dayChangeOiShortQty'])} / {format_signed(row['cycleChangeOiShortQty'])}。"
+        )
+    return {
+        "cycleStartDate": rows[0]["cycleStartDate"] if rows else "",
+        "items": [
+            {
+                "institution": row["institution"],
+                "oiNetQty": row["oiNetQty"],
+                "dayLongChange": row["dayChangeOiLongQty"],
+                "dayShortChange": row["dayChangeOiShortQty"],
+                "dayNetChange": row["dayChangeOiNetQty"],
+                "cycleLongChange": row["cycleChangeOiLongQty"],
+                "cycleShortChange": row["cycleChangeOiShortQty"],
+                "cycleNetChange": row["cycleChangeOiNetQty"],
+            }
+            for row in rows
+        ],
+        "highlights": highlights,
+    }
+
+
 def build_total_summary(
     futures_contracts: list[dict[str, Any]],
     option_contracts: list[dict[str, Any]],
@@ -2108,17 +2214,21 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     oi_change = parse_oi_change(oi_change_table, effective_date)
     base_date = oi_change["date"] or effective_date
     futures_history = fetch_futures_history_rows(base_date, 5)
+    option_history = fetch_option_history_rows(base_date, 5)
     monthly_cycle_start_date = monthly_cycle_start(tx_reference["contract"])
     weekly_cycle_start_date = cycle_start_thursday(base_date)
     cycle_start_rows = futures_contracts if monthly_cycle_start_date == base_date else fetch_futures_rows_for_date(monthly_cycle_start_date)
+    option_cycle_start_rows = option_contracts if monthly_cycle_start_date == base_date else fetch_option_rows_for_date(monthly_cycle_start_date)
     large_previous_date, large_previous_rows = fetch_previous_large_trader_business_day(base_date, tx_reference["contract"])
     large_cycle_rows = {
         "weekly": large_trader_rows if weekly_cycle_start_date == base_date else fetch_large_trader_for_date(weekly_cycle_start_date, tx_reference["contract"]),
         "monthly": large_trader_rows if monthly_cycle_start_date == base_date else fetch_large_trader_for_date(monthly_cycle_start_date, tx_reference["contract"]),
     }
     futures_contracts = enrich_futures_with_history(futures_contracts, futures_history, cycle_start_rows, monthly_cycle_start_date)
+    option_contracts = enrich_option_with_history(option_contracts, option_history, option_cycle_start_rows, monthly_cycle_start_date)
     futures_category_analysis = build_futures_category_analysis(futures_contracts)
     futures_delta_overview = build_futures_delta_overview(futures_contracts)
+    option_delta_overview = build_option_delta_overview(option_contracts)
     previous_option_market_date = oi_change["previousDate"]
     previous_option_market_html = None
     if previous_option_market_date:
@@ -2182,7 +2292,12 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
             "reportUrl": report_url or PUBLIC_BASE_URL,
         },
         "importantDates": important_dates,
-        "changeOverview": futures_delta_overview,
+        "changeOverview": {
+            **futures_delta_overview,
+            "optionHighlights": option_delta_overview["highlights"],
+            "optionItems": option_delta_overview["items"],
+            "optionCycleStartDate": option_delta_overview["cycleStartDate"],
+        },
         "tables": {
             "A": {
                 "title": "A. 三大法人總表詳細版",
@@ -2239,10 +2354,15 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                 "title": "D. 三大法人選擇權分契約詳細版",
                 "date": base_date,
                 "unit": "口、千元",
+                "cycleBasis": {
+                    "monthly": monthly_cycle_start_date,
+                },
                 "rows": option_contracts,
-                "interpretation": "本表直接整理臺指選擇權法人分契約資料，主要看交易淨額與未平倉淨額。",
+                "interpretation": "本表直接整理臺指選擇權法人分契約資料，除交易淨額與未平倉淨額外，也補上與前一營業日及結算後基準日相比的未平倉變動，用來看法人選擇權部位是否持續加碼或回補。",
                 "highlights": [
                     "此表為『區分各選擇權契約』，不是買權/賣權分計表。",
+                    f"單日變動為當日未平倉淨額減前一營業日；結算後累積變動為當日未平倉淨額減 {monthly_cycle_start_date} 基準值。",
+                    *option_delta_overview["highlights"],
                 ],
                 "sources": [f"{TAIFEX}/cht/3/optContractsDateExcel"],
             },

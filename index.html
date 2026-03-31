@@ -684,6 +684,7 @@
                     <p>先看期貨各類別未平倉淨額的單日變動與結算後累積變動，再往下看 B、C 表完整細項。</p>
                 </div>
                 ${renderBullets("速覽重點", section.highlights || [])}
+                ${section.optionHighlights && section.optionHighlights.length ? renderBullets("選擇權分契約速覽", section.optionHighlights) : ""}
                 ${section.largeTraderSummary ? renderBullets("大額交易人前五大 / 前十大", section.largeTraderSummary) : ""}
                 <div class="section-meta-grid mt-5">
                     ${cards}
@@ -811,7 +812,12 @@
                     <td>${formatNumber(row.oiShortQty)}</td>
                     <td>${formatNumber(row.oiShortAmount)}</td>
                     <td class="${signedClass(row.oiNetQty)}">${formatSigned(row.oiNetQty)}</td>
-                    ${isOption ? "" : `
+                    ${isOption ? `
+                        <td>${formatNumber(row.previousOiNetQty)}</td>
+                        <td class="${signedClass(row.dayChangeOiNetQty)}">${formatSigned(row.dayChangeOiNetQty)}</td>
+                        <td>${formatNumber(row.cycleStartOiNetQty)}</td>
+                        <td class="${signedClass(row.cycleChangeOiNetQty)}">${formatSigned(row.cycleChangeOiNetQty)}</td>
+                    ` : `
                         <td>${formatNumber(row.previousOiNetQty)}</td>
                         <td class="${signedClass(row.dayChangeOiNetQty)}">${formatSigned(row.dayChangeOiNetQty)}</td>
                         <td>${formatNumber(row.cycleStartOiNetQty)}</td>
@@ -821,12 +827,12 @@
             `).join("");
 
             const head = isOption
-                ? `<tr><th>身份別</th><th>多方口數</th><th>多方金額</th><th>空方口數</th><th>空方金額</th><th>交易淨額</th><th>未平倉多方</th><th>未平倉多方金額</th><th>未平倉空方</th><th>未平倉空方金額</th><th>未平倉淨額</th></tr>`
+                ? `<tr><th>身份別</th><th>多方口數</th><th>多方金額</th><th>空方口數</th><th>空方金額</th><th>交易淨額</th><th>未平倉多方</th><th>未平倉多方金額</th><th>未平倉空方</th><th>未平倉空方金額</th><th>未平倉淨額</th><th>前一日未平倉淨額</th><th>單日變動</th><th>結算後基準淨額</th><th>結算後累積變動</th></tr>`
                 : `<tr><th>商品 / 身份別</th><th>商品</th><th>身份別</th><th>多方口數</th><th>多方金額</th><th>空方口數</th><th>空方金額</th><th>交易淨額</th><th>未平倉多方</th><th>未平倉多方金額</th><th>未平倉空方</th><th>未平倉空方金額</th><th>未平倉淨額</th><th>前一日未平倉淨額</th><th>單日變動</th><th>結算後基準淨額</th><th>結算後累積變動</th></tr>`;
 
             return sectionShell(section.title, `
                 ${renderMeta(section)}
-                ${!isOption && section.cycleBasis ? `
+                ${section.cycleBasis ? `
                     <div class="mb-4 text-sm leading-7">
                         <span class="font-black">累積基準日：</span>
                         月契約 ${escapeHtml(section.cycleBasis.monthly || "缺資料")}
