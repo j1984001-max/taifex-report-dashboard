@@ -662,6 +662,13 @@
             `;
         }
 
+        function signedTextClass(text) {
+            if (typeof text !== "string") return "";
+            if (text.startsWith("+")) return "num-pos";
+            if (text.startsWith("-")) return "num-neg";
+            return "";
+        }
+
         function sectionShell(title, inner) {
             return `
                 <section class="section-card rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-sm">
@@ -672,7 +679,7 @@
         }
 
         function renderChangeOverview(section) {
-            const cards = (section.items || []).map((item) => `
+            const futuresCards = (section.items || []).map((item) => `
                 <div class="meta-pill">
                     <div class="font-black mb-2">${escapeHtml(item.product)}</div>
                     <div>單日合計變動：<span class="${signedClass(item.dayTotal)}">${formatSigned(item.dayTotal)}</span></div>
@@ -685,6 +692,16 @@
                                 <div>累積：多方 <span class="${signedClass(inst.cycleLongChange)}">${formatSigned(inst.cycleLongChange)}</span>、空方 <span class="${signedClass(inst.cycleShortChange)}">${formatSigned(inst.cycleShortChange)}</span>、淨額 <span class="${signedClass(inst.cycleNetChange)}">${formatSigned(inst.cycleNetChange)}</span></div>
                             </div>
                         `).join("")}
+                    </div>
+                </div>
+            `).join("");
+            const largeTraderCards = (section.largeTraderCards || []).map((item) => `
+                <div class="overview-card">
+                    <div class="font-black mb-2">${escapeHtml(item.label)}</div>
+                    <div class="text-sm leading-7">
+                        <div>前五大：目前 ${escapeHtml(item.top5Qty)}，單日 <span class="${signedTextClass(item.top5Day)}">${escapeHtml(item.top5Day)}</span>，累積 <span class="${signedTextClass(item.top5Cycle)}">${escapeHtml(item.top5Cycle)}</span></div>
+                        <div>前十大：目前 ${escapeHtml(item.top10Qty)}，單日 <span class="${signedTextClass(item.top10Day)}">${escapeHtml(item.top10Day)}</span>，累積 <span class="${signedTextClass(item.top10Cycle)}">${escapeHtml(item.top10Cycle)}</span></div>
+                        <div class="text-slate-500 dark:text-slate-400">累積基準：${escapeHtml(item.cycleStartDate)}</div>
                     </div>
                 </div>
             `).join("");
@@ -703,17 +720,25 @@
 
             return sectionShell("期貨差異變動速覽", `
                 <div class="text-sm leading-7">
-                    <p>先看期貨各類別未平倉淨額的單日變動與結算後累積變動，再往下看 B、C 表完整細項。</p>
+                    <p>先看期貨各類別未平倉淨額，再看大額交易人特定法人變動，最後看選擇權法人部位，閱讀順序會和後面 B、C、D 表一致。</p>
                 </div>
                 ${renderBullets("速覽重點", section.highlights || [])}
-                ${section.optionHighlights && section.optionHighlights.length ? `
-                    ${renderBullets("選擇權分契約速覽", section.optionHighlights)}
-                    <div class="section-meta-grid mt-5">${optionCards}</div>
-                ` : ""}
-                ${section.largeTraderSummary ? renderBullets("大額交易人前五大 / 前十大", section.largeTraderSummary) : ""}
                 <div class="section-meta-grid mt-5">
-                    ${cards}
+                    ${futuresCards}
                 </div>
+                ${section.largeTraderCards && section.largeTraderCards.length ? `
+                    <div class="mt-6">
+                        <h4 class="font-black mb-2">大額交易人五大 / 十大特定法人</h4>
+                        <div class="section-meta-grid">${largeTraderCards}</div>
+                    </div>
+                ` : ""}
+                ${section.optionHighlights && section.optionHighlights.length ? `
+                    <div class="mt-6">
+                        <h4 class="font-black mb-2">選擇權分契約速覽</h4>
+                        <div class="section-meta-grid">${optionCards}</div>
+                        ${renderBullets("選擇權重點摘要", section.optionHighlights)}
+                    </div>
+                ` : ""}
             `);
         }
 

@@ -2473,6 +2473,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         f"全市場未沖銷部位數為 {format_number(large_trader['marketOi'])} 口，前五大買賣方占比差距 {large_trader['longTop5Pct'] - large_trader['shortTop5Pct']:+.1f} 個百分點，前十大差距 {large_trader['longTop10Pct'] - large_trader['shortTop10Pct']:+.1f} 個百分點。",
     ]
     report["changeOverview"]["largeTraderSummary"] = []
+    report["changeOverview"]["largeTraderCards"] = []
     for row in large_trader_rows:
         prev = previous_by_type.get(row["contractType"])
         cycle = cycle_by_type.get(row["contractType"])
@@ -2508,6 +2509,30 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                 f"自 {cycle_label_date} 起累積 "
                 f"{format_signed(short10_cycle)}。"
             )
+        )
+        report["changeOverview"]["largeTraderCards"].append(
+            {
+                "label": f"{row['contractLabel']}買方特定法人",
+                "top5Qty": specific_value_text(row["longTop5SpecificQty"]),
+                "top5Day": format_signed(long5_day),
+                "top5Cycle": format_signed(long5_cycle),
+                "top10Qty": specific_value_text(row["longTop10SpecificQty"]),
+                "top10Day": format_signed(long10_day),
+                "top10Cycle": format_signed(long10_cycle),
+                "cycleStartDate": cycle_label_date,
+            }
+        )
+        report["changeOverview"]["largeTraderCards"].append(
+            {
+                "label": f"{row['contractLabel']}賣方特定法人",
+                "top5Qty": specific_value_text(row["shortTop5SpecificQty"]),
+                "top5Day": format_signed(short5_day),
+                "top5Cycle": format_signed(short5_cycle),
+                "top10Qty": specific_value_text(row["shortTop10SpecificQty"]),
+                "top10Day": format_signed(short10_day),
+                "top10Cycle": format_signed(short10_cycle),
+                "cycleStartDate": cycle_label_date,
+            }
         )
         large_highlights.append(
             f"{row['contractLabel']}特定法人買方變動：前五大較前一營業日 {format_signed(long5_day)}、自 {cycle_label_date} 起累積 {format_signed(long5_cycle)}；前十大較前一營業日 {format_signed(long10_day)}、自 {cycle_label_date} 起累積 {format_signed(long10_cycle)}。"
