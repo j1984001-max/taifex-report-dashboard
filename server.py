@@ -63,14 +63,47 @@ MONTH_NAMES = {
     "December": 12,
 }
 TSMC_FALLBACK_EVENT = {
-    "title": "台積電最近一次已公告法人說明會",
+    "title": "台積電下一次已公告法人說明會",
     "sourceTitle": "TSMC Official IR",
-    "sourceUrl": "https://investor.tsmc.com/english/quarterly-results/teleconference",
-    "sourceDateTime": "2026/01/15 14:00-15:30（台灣時間）",
-    "taiwanDateTime": "2026/01/15 14:00-15:30",
-    "status": "最近一次已公告",
-    "note": "台積電 IR 頁面有 Cloudflare 驗證保護，本站先顯示最近一次已公告的官方法說資訊；下一次法說請點官方頁面複核。",
+    "sourceUrl": "https://investor.tsmc.com/english/financial-calendar",
+    "sourceDateTime": "2026/04/16 14:00-15:30（台灣時間）",
+    "taiwanDateTime": "2026/04/16 14:00-15:30",
+    "status": "官方已公告",
+    "note": "TSMC Financial Calendar 顯示下一次法說為 2026/04/16 1Q'26 Results - Earnings Conference and Conference Call。",
 }
+TSMC_EVENT_DATE = datetime(2026, 4, 16, 14, 0, tzinfo=TW_TZ)
+BLS_STATIC_2026 = [
+    {
+        "title": "非農就業報告",
+        "sourceUrl": "https://www.bls.gov/schedule/news_release/empsit.htm",
+        "sourceTitle": "BLS",
+        "month": 4,
+        "day": 3,
+        "hour": 8,
+        "minute": 30,
+        "note": "Employment Situation for March 2026",
+    },
+    {
+        "title": "CPI",
+        "sourceUrl": "https://www.bls.gov/schedule/news_release/cpi.htm",
+        "sourceTitle": "BLS",
+        "month": 4,
+        "day": 10,
+        "hour": 8,
+        "minute": 30,
+        "note": "Consumer Price Index for March 2026",
+    },
+    {
+        "title": "PPI",
+        "sourceUrl": "https://www.bls.gov/schedule/news_release/ppi.htm",
+        "sourceTitle": "BLS",
+        "month": 4,
+        "day": 14,
+        "hour": 8,
+        "minute": 30,
+        "note": "Producer Price Index for March 2026",
+    },
+]
 
 pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
 
@@ -483,13 +516,66 @@ def fetch_fomc_date(report_date: str) -> dict[str, str]:
     }
 
 
-def build_important_dates(report_date: str) -> dict[str, Any]:
-    items = [dict(category="台積電法說", **TSMC_FALLBACK_EVENT)]
-    notes = [
-        "台積電法說目前先顯示最近一次已公告的官方法說頁資訊；下一次法說若尚未公告，本站不自行推估。",
-        "美國經濟數據時間一律先採官方來源原始時區，再轉換為台灣時間。",
-        "BLS 官方排程頁會擋機器抓取，因此 CPI / PPI / 非農目前先不自動寫入，避免誤植日期。",
+def build_tsmc_event(report_date: str) -> dict[str, str]:
+    current = datetime.strptime(report_date, "%Y/%m/%d").replace(tzinfo=TW_TZ)
+    if current <= TSMC_EVENT_DATE:
+        return dict(category="台積電法說", **TSMC_FALLBACK_EVENT)
+    return {
+        "category": "台積電法說",
+        "title": "台積電下一次已公告法人說明會",
+        "sourceTitle": "TSMC Official IR",
+        "sourceUrl": "https://investor.tsmc.com/english/financial-calendar",
+        "sourceDateTime": "尚未補齊",
+        "taiwanDateTime": "尚未補齊",
+        "status": "待官網更新",
+        "note": "截至目前抓到的官方行事曆快照，下一場已公告法說仍未更新；請點官方 Financial Calendar 複核。",
+    }
+
+
+def build_bls_static_dates(report_date: str) -> list[dict[str, str]]:
+    current_date = datetime.strptime(report_date, "%Y/%m/%d").date()
+    rows: list[dict[str, str]] = []
+    for item in BLS_STATIC_2026:
+        event_dt = datetime(2026, item["month"], item["day"], item["hour"], item["minute"], tzinfo=US_EASTERN)
+        if event_dt.date() < current_date:
+            continue
+        rows.append(
+            {
+                "category": "美國重要經濟數據",
+                "title": item["title"],
+                "sourceTitle": item["sourceTitle"],
+                "sourceUrl": item["sourceUrl"],
+                "sourceDateTime": f"{event_dt.strftime('%Y/%m/%d %H:%M')}（美東時間）",
+                "taiwanDateTime": format_tw_datetime(event_dt),
+                "status": "官方排程",
+                "note": item["note"],
+            }
+        )
+    if rows:
+        return rows
+    return [
+        {
+            "category": "美國重要經濟數據",
+            "title": item["title"],
+            "sourceTitle": item["sourceTitle"],
+            "sourceUrl": item["sourceUrl"],
+            "sourceDateTime": "尚未補齊",
+            "taiwanDateTime": "尚未補齊",
+            "status": "待下一年度排程",
+            "note": "目前僅內建 2026 官方發布排程；後續年度需再更新官方日期。",
+        }
+        for item in BLS_STATIC_2026
     ]
+
+
+def build_important_dates(report_date: str) -> dict[str, Any]:
+    items = [build_tsmc_event(report_date)]
+    notes = [
+        "台積電法說改為優先顯示下一次已公告但尚未舉行的日期；若官網尚未公告，本站不自行推估。",
+        "美國經濟數據時間一律先採官方來源原始時區，再轉換為台灣時間。",
+        "CPI / PPI / 非農目前改用官方 BLS 排程補齊；若超出目前內建年度，會標示待下一年度排程。",
+    ]
+    items.extend(build_bls_static_dates(report_date))
     try:
         items.extend(fetch_bea_important_dates(report_date))
     except Exception:
@@ -498,40 +584,6 @@ def build_important_dates(report_date: str) -> dict[str, Any]:
         items.append(fetch_fomc_date(report_date))
     except Exception:
         notes.append("Federal Reserve 排程頁本次抓取失敗，請改點官方來源複核。")
-    items.extend(
-        [
-            {
-                "category": "美國重要經濟數據",
-                "title": "CPI",
-                "sourceTitle": "BLS",
-                "sourceUrl": "https://www.bls.gov/schedule/news_release/cpi.htm",
-                "sourceDateTime": "缺資料",
-                "taiwanDateTime": "缺資料",
-                "status": "官方來源受限",
-                "note": "BLS 排程頁會擋機器抓取，請點官方頁面人工複核。",
-            },
-            {
-                "category": "美國重要經濟數據",
-                "title": "PPI",
-                "sourceTitle": "BLS",
-                "sourceUrl": "https://www.bls.gov/schedule/news_release/ppi.htm",
-                "sourceDateTime": "缺資料",
-                "taiwanDateTime": "缺資料",
-                "status": "官方來源受限",
-                "note": "BLS 排程頁會擋機器抓取，請點官方頁面人工複核。",
-            },
-            {
-                "category": "美國重要經濟數據",
-                "title": "非農就業報告",
-                "sourceTitle": "BLS",
-                "sourceUrl": "https://www.bls.gov/schedule/news_release/empsit.htm",
-                "sourceDateTime": "缺資料",
-                "taiwanDateTime": "缺資料",
-                "status": "官方來源受限",
-                "note": "BLS 排程頁會擋機器抓取，請點官方頁面人工複核。",
-            },
-        ]
-    )
     return {
         "title": "重要日期提醒",
         "date": report_date,
