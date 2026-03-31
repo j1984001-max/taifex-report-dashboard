@@ -417,6 +417,13 @@ def format_tw_datetime(dt: datetime) -> str:
     return dt.astimezone(TW_TZ).strftime("%Y/%m/%d %H:%M")
 
 
+def extract_date_prefix(value: str) -> datetime.date | None:
+    match = re.search(r"(\d{4}/\d{2}/\d{2})", value or "")
+    if not match:
+        return None
+    return datetime.strptime(match.group(1), "%Y/%m/%d").date()
+
+
 def parse_us_datetime(year: int, month_name: str, day: str, time_text: str, am_pm: str) -> datetime:
     hour, minute = [int(part) for part in time_text.split(":")]
     if am_pm.upper() == "PM" and hour != 12:
@@ -584,11 +591,23 @@ def build_important_dates(report_date: str) -> dict[str, Any]:
         items.append(fetch_fomc_date(report_date))
     except Exception:
         notes.append("Federal Reserve 排程頁本次抓取失敗，請改點官方來源複核。")
+    base_date = datetime.strptime(report_date, "%Y/%m/%d").date()
+    urgent_items: list[str] = []
+    for item in items:
+        target_date = extract_date_prefix(item.get("taiwanDateTime", "")) or extract_date_prefix(item.get("sourceDateTime", ""))
+        days_until = None if target_date is None else (target_date - base_date).days
+        item["daysUntil"] = days_until
+        item["urgent"] = days_until is not None and 0 <= days_until <= 3
+        if item["urgent"]:
+            urgent_items.append(
+                f"{item['title']}：{item['taiwanDateTime']}，距今 {days_until} 天。"
+            )
     return {
         "title": "重要日期提醒",
         "date": report_date,
         "unit": "日期、時間",
         "rows": items,
+        "urgentHighlights": urgent_items,
         "interpretation": "本區塊先整理台積電法說與美國重要經濟數據的官方時點，再把美東時間轉成台灣時間，方便快速排程觀察。",
         "highlights": notes,
         "sources": sorted({item["sourceUrl"] for item in items}),
