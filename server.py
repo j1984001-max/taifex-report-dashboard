@@ -16,6 +16,7 @@ from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -45,6 +46,31 @@ HEADERS = {
 TARGET_FUTURES_PRODUCTS = {"臺股期貨", "小型臺指期貨", "微型臺指期貨", "電子期貨", "金融期貨"}
 TARGET_OPTION_PRODUCT = "臺指選擇權"
 TARGET_LARGE_TRADER = "臺股期貨(TX+MTX/4+TMF/20)"
+US_EASTERN = ZoneInfo("America/New_York")
+TW_TZ = ZoneInfo("Asia/Taipei")
+MONTH_NAMES = {
+    "January": 1,
+    "February": 2,
+    "March": 3,
+    "April": 4,
+    "May": 5,
+    "June": 6,
+    "July": 7,
+    "August": 8,
+    "September": 9,
+    "October": 10,
+    "November": 11,
+    "December": 12,
+}
+TSMC_FALLBACK_EVENT = {
+    "title": "台積電最近一次已公告法人說明會",
+    "sourceTitle": "TSMC Official IR",
+    "sourceUrl": "https://investor.tsmc.com/english/quarterly-results/teleconference",
+    "sourceDateTime": "2026/01/15 14:00-15:30（台灣時間）",
+    "taiwanDateTime": "2026/01/15 14:00-15:30",
+    "status": "最近一次已公告",
+    "note": "台積電 IR 頁面有 Cloudflare 驗證保護，本站先顯示最近一次已公告的官方法說資訊；下一次法說請點官方頁面複核。",
+}
 
 pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
 
@@ -345,6 +371,176 @@ def extract_page_date(html: str) -> str:
         if match:
             return match.group(1)
     raise ValueError("無法辨識日期")
+
+
+def strip_html_text(value: str) -> str:
+    text = re.sub(r"<script.*?</script>|<style.*?</style>", " ", value, flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = text.replace("&nbsp;", " ").replace("&#160;", " ")
+    return normalize_text(text)
+
+
+def format_tw_datetime(dt: datetime) -> str:
+    return dt.astimezone(TW_TZ).strftime("%Y/%m/%d %H:%M")
+
+
+def parse_us_datetime(year: int, month_name: str, day: str, time_text: str, am_pm: str) -> datetime:
+    hour, minute = [int(part) for part in time_text.split(":")]
+    if am_pm.upper() == "PM" and hour != 12:
+        hour += 12
+    if am_pm.upper() == "AM" and hour == 12:
+        hour = 0
+    return datetime(year, MONTH_NAMES[month_name], int(day), hour, minute, tzinfo=US_EASTERN)
+
+
+def fetch_bea_important_dates(report_date: str) -> list[dict[str, str]]:
+    html = request_html("https://www.bea.gov", "/news/schedule/full")
+    plain = strip_html_text(html)
+    pattern = re.compile(
+        r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+        r"(\d{1,2})\s+(\d{1,2}:\d{2})\s+(AM|PM)\s+N\s*ews\s+(.+?)(?=\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s+\d{1,2}:\d{2}\s+(?:AM|PM)\s+N\s*ews|\s*$)"
+    )
+    keyword_map = [
+        ("GDP", "GDP (", "BEA"),
+        ("PCE / Personal Income and Outlays", "Personal Income and Outlays", "BEA"),
+        ("美國貿易收支", "U.S. International Trade in Goods and Services", "BEA"),
+    ]
+    current_date = datetime.strptime(report_date, "%Y/%m/%d").date()
+    matches: list[tuple[datetime, str]] = []
+    for month_name, day, time_text, am_pm, title in pattern.findall(plain):
+        title = normalize_text(title.replace("View", ""))
+        event_dt = parse_us_datetime(current_date.year, month_name, day, time_text, am_pm)
+        if event_dt.date() < current_date:
+            continue
+        matches.append((event_dt, title))
+
+    rows: list[dict[str, str]] = []
+    for label, keyword, source_title in keyword_map:
+        matched = next((item for item in matches if keyword in item[1]), None)
+        if not matched:
+            rows.append(
+                {
+                    "category": "美國重要經濟數據",
+                    "title": label,
+                    "sourceTitle": source_title,
+                    "sourceUrl": "https://www.bea.gov/news/schedule/full",
+                    "sourceDateTime": "缺資料",
+                    "taiwanDateTime": "缺資料",
+                    "status": "尚未補齊",
+                    "note": "BEA 官方排程頁未找到後續時點。",
+                }
+            )
+            continue
+        event_dt, title = matched
+        rows.append(
+            {
+                "category": "美國重要經濟數據",
+                "title": label,
+                "sourceTitle": source_title,
+                "sourceUrl": "https://www.bea.gov/news/schedule/full",
+                "sourceDateTime": f"{event_dt.strftime('%Y/%m/%d %H:%M')}（美東時間）",
+                "taiwanDateTime": format_tw_datetime(event_dt),
+                "status": "官方排程",
+                "note": title,
+            }
+        )
+    return rows
+
+
+def fetch_fomc_date(report_date: str) -> dict[str, str]:
+    html = request_html("https://www.federalreserve.gov", "/monetarypolicy/fomccalendars.htm")
+    plain = strip_html_text(html)
+    match = re.search(r"2026 FOMC Meetings(.+?)2025 FOMC Meetings", plain)
+    block = match.group(1) if match else plain
+    entries = re.findall(
+        r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})-(\d{1,2})\*?",
+        block,
+    )
+    current_date = datetime.strptime(report_date, "%Y/%m/%d").date()
+    for month_name, start_day, end_day in entries:
+        event_date = datetime(current_date.year, MONTH_NAMES[month_name], int(end_day)).date()
+        if event_date < current_date:
+            continue
+        return {
+            "category": "美國重要經濟數據",
+            "title": "FOMC 利率決議",
+            "sourceTitle": "Federal Reserve",
+            "sourceUrl": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+            "sourceDateTime": f"{current_date.year}/{MONTH_NAMES[month_name]:02d}/{int(end_day):02d}（官方頁未列固定時點）",
+            "taiwanDateTime": f"{current_date.year}/{MONTH_NAMES[month_name]:02d}/{int(end_day):02d}（台灣時間待官方公告）",
+            "status": "官方排程",
+            "note": f"會議日期為 {month_name} {start_day}-{end_day}，官方排程頁未列固定發布時點。",
+        }
+    return {
+        "category": "美國重要經濟數據",
+        "title": "FOMC 利率決議",
+        "sourceTitle": "Federal Reserve",
+        "sourceUrl": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+        "sourceDateTime": "缺資料",
+        "taiwanDateTime": "缺資料",
+        "status": "尚未補齊",
+        "note": "Federal Reserve 官方排程頁未找到後續會議日期。",
+    }
+
+
+def build_important_dates(report_date: str) -> dict[str, Any]:
+    items = [dict(category="台積電法說", **TSMC_FALLBACK_EVENT)]
+    notes = [
+        "台積電法說目前先顯示最近一次已公告的官方法說頁資訊；下一次法說若尚未公告，本站不自行推估。",
+        "美國經濟數據時間一律先採官方來源原始時區，再轉換為台灣時間。",
+        "BLS 官方排程頁會擋機器抓取，因此 CPI / PPI / 非農目前先不自動寫入，避免誤植日期。",
+    ]
+    try:
+        items.extend(fetch_bea_important_dates(report_date))
+    except Exception:
+        notes.append("BEA 排程頁本次抓取失敗，請改點官方來源複核。")
+    try:
+        items.append(fetch_fomc_date(report_date))
+    except Exception:
+        notes.append("Federal Reserve 排程頁本次抓取失敗，請改點官方來源複核。")
+    items.extend(
+        [
+            {
+                "category": "美國重要經濟數據",
+                "title": "CPI",
+                "sourceTitle": "BLS",
+                "sourceUrl": "https://www.bls.gov/schedule/news_release/cpi.htm",
+                "sourceDateTime": "缺資料",
+                "taiwanDateTime": "缺資料",
+                "status": "官方來源受限",
+                "note": "BLS 排程頁會擋機器抓取，請點官方頁面人工複核。",
+            },
+            {
+                "category": "美國重要經濟數據",
+                "title": "PPI",
+                "sourceTitle": "BLS",
+                "sourceUrl": "https://www.bls.gov/schedule/news_release/ppi.htm",
+                "sourceDateTime": "缺資料",
+                "taiwanDateTime": "缺資料",
+                "status": "官方來源受限",
+                "note": "BLS 排程頁會擋機器抓取，請點官方頁面人工複核。",
+            },
+            {
+                "category": "美國重要經濟數據",
+                "title": "非農就業報告",
+                "sourceTitle": "BLS",
+                "sourceUrl": "https://www.bls.gov/schedule/news_release/empsit.htm",
+                "sourceDateTime": "缺資料",
+                "taiwanDateTime": "缺資料",
+                "status": "官方來源受限",
+                "note": "BLS 排程頁會擋機器抓取，請點官方頁面人工複核。",
+            },
+        ]
+    )
+    return {
+        "title": "重要日期提醒",
+        "date": report_date,
+        "unit": "日期、時間",
+        "rows": items,
+        "interpretation": "本區塊先整理台積電法說與美國重要經濟數據的官方時點，再把美東時間轉成台灣時間，方便快速排程觀察。",
+        "highlights": notes,
+        "sources": sorted({item["sourceUrl"] for item in items}),
+    }
 
 
 def parse_pair_number(value: str) -> int:
@@ -1881,6 +2077,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     pc_ratio_method = "official"
     if not pc_ratio:
         pc_ratio, pc_ratio_method = fetch_pc_ratio_fallback(base_date)
+    important_dates = build_important_dates(base_date)
 
     long_top10_add_qty = large_trader["longTop10Qty"] - large_trader["longTop5Qty"]
     short_top10_add_qty = large_trader["shortTop10Qty"] - large_trader["shortTop5Qty"]
@@ -1913,6 +2110,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
             "generatedAt": datetime.now().isoformat(timespec="seconds"),
             "reportUrl": report_url or PUBLIC_BASE_URL,
         },
+        "importantDates": important_dates,
         "changeOverview": futures_delta_overview,
         "tables": {
             "A": {

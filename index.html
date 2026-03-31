@@ -529,14 +529,6 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        <section class="section-card rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-sm">
-            <h2 class="text-2xl font-black mb-3">輸出規格</h2>
-            <p class="leading-7 text-slate-600 dark:text-slate-300">
-                本頁依固定順序輸出 A. 三大法人總表、B. 期貨分契約、C. 大額交易人、D. 選擇權分契約、E. 支撐壓力、F. OI 增減、G. Put/Call Ratio、H. 綜合分析、I. Telegram 精簡版、J. Email 完整版。
-                所有數字均以期交所官方頁面抓取後整理，若資料缺漏會直接標示缺資料。
-            </p>
-        </section>
-
         <div id="reportRoot" class="space-y-8">
             <section class="loading-card">
                 <div class="flex items-center gap-2 mb-4">
@@ -560,6 +552,14 @@
         <section id="fallbackNotice" class="hidden section-card rounded-2xl bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900 p-5">
             <h2 class="text-lg font-black text-amber-800 dark:text-amber-200 mb-2">資料日期提示</h2>
             <p id="fallbackNoticeText" class="text-sm leading-7 text-amber-700 dark:text-amber-100"></p>
+        </section>
+
+        <section class="section-card rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-sm">
+            <h2 class="text-2xl font-black mb-3">輸出規格</h2>
+            <p class="leading-7 text-slate-600 dark:text-slate-300">
+                本頁依固定順序輸出 A. 三大法人總表、B. 期貨分契約、C. 大額交易人、D. 選擇權分契約、E. 支撐壓力、F. OI 增減、G. Put/Call Ratio、H. 綜合分析、I. Telegram 精簡版、J. Email 完整版。
+                所有數字均以期交所官方頁面抓取後整理，若資料缺漏會直接標示缺資料。
+            </p>
         </section>
     </main>
 
@@ -674,6 +674,48 @@
                 ${section.largeTraderSummary ? renderBullets("大額交易人前五大 / 前十大", section.largeTraderSummary) : ""}
                 <div class="section-meta-grid mt-5">
                     ${cards}
+                </div>
+            `);
+        }
+
+        function renderImportantDates(section) {
+            const rows = (section.rows || []).map((row) => `
+                <tr>
+                    <td>${escapeHtml(row.category)}</td>
+                    <td>${escapeHtml(row.title)}</td>
+                    <td><a class="text-sky-600 dark:text-sky-300 underline" href="${escapeHtml(row.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(row.sourceTitle)}</a></td>
+                    <td>${escapeHtml(row.sourceDateTime)}</td>
+                    <td>${escapeHtml(row.taiwanDateTime)}</td>
+                    <td>${escapeHtml(row.status)}</td>
+                    <td>${escapeHtml(row.note)}</td>
+                </tr>
+            `).join("");
+            return sectionShell(section.title, `
+                ${renderMeta(section)}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>分類</th>
+                                <th>項目</th>
+                                <th>官方來源</th>
+                                <th>原始日期時間</th>
+                                <th>台灣日期時間</th>
+                                <th>狀態</th>
+                                <th>說明</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">表格解讀</h4>
+                    <p>${escapeHtml(section.interpretation)}</p>
+                </div>
+                ${renderBullets("重點摘要", section.highlights || [])}
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">資料來源</h4>
+                    ${sourceLinks(section.sources || [])}
                 </div>
             `);
         }
@@ -1186,6 +1228,7 @@
             }
             reportRoot.innerHTML = [
                 renderChangeOverview(report.changeOverview),
+                renderImportantDates(report.importantDates),
                 renderTableA(tables.A),
                 renderContractTable(tables.B, false),
                 renderTableC(tables.C),
