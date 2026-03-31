@@ -30,6 +30,16 @@
             font-weight: 800;
         }
         .dark .urgent-row { background: rgba(127, 29, 29, 0.24); }
+        .overview-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 1rem;
+            padding: 1rem;
+            background: #ffffff;
+        }
+        .dark .overview-card {
+            border-color: #334155;
+            background: #0f172a;
+        }
         .section-card { border: 1px solid #e2e8f0; }
         .dark .section-card { border-color: #1e293b; }
         .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
@@ -678,13 +688,28 @@
                     </div>
                 </div>
             `).join("");
+            const optionCards = (section.optionItems || []).map((item) => `
+                <div class="overview-card">
+                    <div class="flex items-center justify-between gap-3 mb-2">
+                        <div class="font-black">${escapeHtml(item.institution)}</div>
+                        <div class="${signedClass(item.oiNetQty)}">${formatSigned(item.oiNetQty)}</div>
+                    </div>
+                    <div class="text-sm leading-7">
+                        <div>單日：多方 <span class="${signedClass(item.dayLongChange)}">${formatSigned(item.dayLongChange)}</span>、空方 <span class="${signedClass(item.dayShortChange)}">${formatSigned(item.dayShortChange)}</span>、淨額 <span class="${signedClass(item.dayNetChange)}">${formatSigned(item.dayNetChange)}</span></div>
+                        <div>累積：多方 <span class="${signedClass(item.cycleLongChange)}">${formatSigned(item.cycleLongChange)}</span>、空方 <span class="${signedClass(item.cycleShortChange)}">${formatSigned(item.cycleShortChange)}</span>、淨額 <span class="${signedClass(item.cycleNetChange)}">${formatSigned(item.cycleNetChange)}</span></div>
+                    </div>
+                </div>
+            `).join("");
 
             return sectionShell("期貨差異變動速覽", `
                 <div class="text-sm leading-7">
                     <p>先看期貨各類別未平倉淨額的單日變動與結算後累積變動，再往下看 B、C 表完整細項。</p>
                 </div>
                 ${renderBullets("速覽重點", section.highlights || [])}
-                ${section.optionHighlights && section.optionHighlights.length ? renderBullets("選擇權分契約速覽", section.optionHighlights) : ""}
+                ${section.optionHighlights && section.optionHighlights.length ? `
+                    ${renderBullets("選擇權分契約速覽", section.optionHighlights)}
+                    <div class="section-meta-grid mt-5">${optionCards}</div>
+                ` : ""}
                 ${section.largeTraderSummary ? renderBullets("大額交易人前五大 / 前十大", section.largeTraderSummary) : ""}
                 <div class="section-meta-grid mt-5">
                     ${cards}
@@ -1268,7 +1293,10 @@
                 renderCopySection("email-copy", "J. Email 完整版", report.email),
             ].join("");
 
-            const eSection = reportRoot.querySelector(".section-card:nth-of-type(6)");
+            const eSection = Array.from(reportRoot.querySelectorAll(".section-card")).find((sectionNode) => {
+                const heading = sectionNode.querySelector("h2");
+                return heading && heading.textContent.trim().startsWith("E.");
+            });
             if (eSection) {
                 eSection.querySelectorAll("[data-sr-target]").forEach((node) => {
                     node.addEventListener("click", () => activateSrChart(eSection, node.getAttribute("data-sr-target")));
