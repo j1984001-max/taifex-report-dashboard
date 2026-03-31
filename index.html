@@ -722,6 +722,14 @@
                 <div class="text-sm leading-7">
                     <p>先看期貨各類別未平倉淨額，再看大額交易人特定法人變動，最後看選擇權法人部位，閱讀順序會和後面 B、C、D 表一致。</p>
                 </div>
+                ${section.urgentHighlights && section.urgentHighlights.length ? `
+                    <div class="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
+                        <h4 class="font-black mb-2 text-red-700 dark:text-red-300">三個營業日內重要日期</h4>
+                        <ul class="list-disc pl-6 space-y-1 text-sm leading-7 text-red-700 dark:text-red-200">
+                            ${section.urgentHighlights.map(item => `<li>${escapeHtml(item)}</li>`).join("")}
+                        </ul>
+                    </div>
+                ` : ""}
                 ${renderBullets("速覽重點", section.highlights || [])}
                 <div class="section-meta-grid mt-5">
                     ${futuresCards}

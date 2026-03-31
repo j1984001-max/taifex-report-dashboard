@@ -2294,6 +2294,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         "importantDates": important_dates,
         "changeOverview": {
             **futures_delta_overview,
+            "urgentHighlights": important_dates["urgentHighlights"],
             "optionHighlights": option_delta_overview["highlights"],
             "optionItems": option_delta_overview["items"],
             "optionCycleStartDate": option_delta_overview["cycleStartDate"],
