@@ -91,7 +91,23 @@ def build_quick_overview(report: dict[str, object]) -> str:
     if overview.get("largeTraderSummary"):
         lines.extend(["", "大額交易人前五大 / 前十大"])
         lines.extend(f"- {item}" for item in overview["largeTraderSummary"])
+    warning = build_important_date_warning(report)
+    if warning:
+        lines.extend(["", "重要日期提醒", warning])
     return "\n".join(lines)
+
+
+def build_important_date_warning(report: dict[str, object]) -> str:
+    section = report.get("importantDates", {})
+    rows = section.get("rows", [])
+    stale = [
+        row for row in rows
+        if row.get("sourceTitle") == "BLS" and row.get("status") not in {"官方排程"}
+    ]
+    if not stale:
+        return ""
+    titles = "、".join(row.get("title", "") for row in stale)
+    return f"注意：{titles} 的 BLS 年度排程尚未更新，需補新年度官方日期。"
 
 
 def send_email(report: dict[str, object], pdf_data: bytes) -> str:
