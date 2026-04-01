@@ -2144,58 +2144,24 @@ def build_telegram_important_date_lines(report: dict[str, Any], limit: int = 10)
 
 
 def build_telegram_text(report: dict[str, Any]) -> str:
-    foreign = next(row for row in report["tables"]["A"]["rows"] if row["institution"] == "外資")
-    levels = report["tables"]["E"]["charts"][0]
-    ratio = report["tables"]["G"]["rows"][0] if report["tables"]["G"]["rows"] else None
     link = report["meta"].get("reportUrl", "")
-    ratio_text = f"PCR OI {ratio['oiRatio']:.2f}%" if ratio else "PCR 缺資料"
+    pdf_link = f"{PUBLIC_BASE_URL}/api/report.pdf?date={report['meta']['date']}"
+    sources: list[str] = []
+    for key in ["A", "B", "C", "D", "E", "F", "G"]:
+        for source in report["tables"][key].get("sources", []):
+            if source not in sources:
+                sources.append(source)
     lines = [
-        f"{report['meta']['date']} 台指籌碼完整快報",
-        f"完整報告：{link}",
+        f"{report['meta']['date']} 台指籌碼完整報告",
+        f"完整網頁：{link}",
+        f"PDF：{pdf_link}",
         "",
+        "結論",
+        report["analysis"]["conclusion"],
+        "",
+        "資料來源",
     ]
-    if report["changeOverview"].get("urgentHighlights"):
-        lines.extend(["三個營業日內重要日期"])
-        lines.extend(f"- {item}" for item in report["changeOverview"]["urgentHighlights"])
-        lines.append("")
-    important_date_lines = build_telegram_important_date_lines(report)
-    if important_date_lines:
-        lines.extend(["重要日期提醒"])
-        lines.extend(important_date_lines)
-        lines.append("")
-    lines.extend([
-        "A. 三大法人總表",
-    ])
-    lines.extend(f"- {item}" for item in report["tables"]["A"]["highlights"])
-    lines.extend(["", "B. 三大法人期貨分契約"])
-    lines.extend(f"- {item}" for item in report["tables"]["B"]["highlights"])
-    lines.extend(["", "C. 大額交易人未沖銷"])
-    lines.extend(f"- {item}" for item in report["tables"]["C"]["highlights"])
-    lines.extend(["", "D. 三大法人選擇權分契約"])
-    lines.extend(f"- {item}" for item in report["tables"]["D"]["highlights"])
-    lines.extend(["", "E. 選擇權支撐壓力"])
-    lines.extend(f"- {item}" for item in report["tables"]["E"]["highlights"])
-    for chart in report["tables"]["E"]["charts"]:
-        lines.append(f"- {chart['label']} / {chart['series']}")
-        lines.extend(f"  - {item}" for item in chart["highlights"])
-    lines.extend(["", "F. OI 增減"])
-    lines.extend(f"- {item}" for item in report["tables"]["F"]["highlights"])
-    lines.extend(["", "G. Put/Call Ratio"])
-    lines.extend(f"- {item}" for item in report["tables"]["G"]["highlights"])
-    lines.extend(["", "H. 綜合分析"])
-    lines.extend(f"- {item}" for item in report["analysis"]["highlights"])
-    for section in report["analysis"]["sections"]:
-        lines.append(f"- {section['title']}：{section['body']}")
-    lines.extend(
-        [
-            "",
-            "一句話結論",
-            report["analysis"]["conclusion"],
-            "",
-            f"速讀：外資 {foreign['combinedOiNetQty']:+,} 口，TX 結算 {report['tables']['E']['txSettlement']:,}，ATM {levels['atmStrike']:,}，"
-            f"壓力 {levels['ceiling']['strike']:,} Call，支撐 {levels['floor']['strike']:,} Put，{ratio_text}",
-        ]
-    )
+    lines.extend(f"- {source}" for source in sources)
     return "\n".join(lines)
 
 
