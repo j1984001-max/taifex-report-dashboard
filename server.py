@@ -109,6 +109,7 @@ SETTLEMENT_SOURCE_URLS = {
     "taifex_m1f": "https://www.taifex.com.tw/cht/2/m1F",
     "taifex_us": "https://www.taifex.com.tw/cht/2/spf",
     "taifex_ftse100": "https://www.taifex.com.tw/cht/2/f1f",
+    "sgx_ftse_taiwan": "https://www.sgx.com/derivatives/products/twnfc",
 }
 
 pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
@@ -656,6 +657,16 @@ def build_settlement_reminders(report_date: str) -> list[dict[str, str]]:
             "taiwanDateTime": f"{next_us_quarter.strftime('%Y/%m/%d')}（台灣時間）",
             "status": "依官方規則推算",
             "note": "英國富時100期貨以季月契約為主，本站以季月第 3 個星期五作提醒用途；若遇標的市場假期，請再依交易所行事曆複核。",
+        },
+        {
+            "category": "重要結算日期",
+            "title": "SGX FTSE Taiwan 指數期貨季結算",
+            "sourceTitle": "SGX",
+            "sourceUrl": SETTLEMENT_SOURCE_URLS["sgx_ftse_taiwan"],
+            "sourceDateTime": f"{next_us_quarter.strftime('%Y/%m/%d')}（依季月規則推算）",
+            "taiwanDateTime": f"{next_us_quarter.strftime('%Y/%m/%d')}（台灣時間）",
+            "status": "依規則推算",
+            "note": "SGX FTSE Taiwan 指數期貨以季月循環為主，本站先以最近季月第 3 個星期五作提醒用途；實際最後交易日仍請以 SGX 產品頁與交易所公告複核。",
         },
     ]
 
