@@ -104,6 +104,12 @@ BLS_STATIC_2026 = [
         "note": "Producer Price Index for March 2026",
     },
 ]
+SETTLEMENT_SOURCE_URLS = {
+    "taifex_index": "https://www.taifex.com.tw/cht/2/tx",
+    "taifex_m1f": "https://www.taifex.com.tw/cht/2/m1F",
+    "taifex_us": "https://www.taifex.com.tw/cht/2/spf",
+    "taifex_ftse100": "https://www.taifex.com.tw/cht/2/f1f",
+}
 
 pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
 
@@ -424,6 +430,36 @@ def extract_date_prefix(value: str) -> datetime.date | None:
     return datetime.strptime(match.group(1), "%Y/%m/%d").date()
 
 
+def nth_weekday(year: int, month: int, weekday: int, n: int) -> datetime.date:
+    first = datetime(year, month, 1).date()
+    offset = (weekday - first.weekday()) % 7
+    return first + timedelta(days=offset + (n - 1) * 7)
+
+
+def next_third_wednesday(after_date: datetime.date) -> datetime.date:
+    year = after_date.year
+    month = after_date.month
+    while True:
+        candidate = nth_weekday(year, month, 2, 3)
+        if candidate >= after_date:
+            return candidate
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+
+
+def next_quarter_third_friday(after_date: datetime.date) -> datetime.date:
+    year = after_date.year
+    quarter_months = [3, 6, 9, 12]
+    while True:
+        for month in quarter_months:
+            candidate = nth_weekday(year, month, 4, 3)
+            if candidate >= after_date:
+                return candidate
+        year += 1
+
+
 def parse_us_datetime(year: int, month_name: str, day: str, time_text: str, am_pm: str) -> datetime:
     hour, minute = [int(part) for part in time_text.split(":")]
     if am_pm.upper() == "PM" and hour != 12:
@@ -575,13 +611,64 @@ def build_bls_static_dates(report_date: str) -> list[dict[str, str]]:
     ]
 
 
+def build_settlement_reminders(report_date: str) -> list[dict[str, str]]:
+    base_date = datetime.strptime(report_date, "%Y/%m/%d").date()
+    next_taifex_monthly = next_third_wednesday(base_date)
+    next_us_quarter = next_quarter_third_friday(base_date)
+
+    return [
+        {
+            "category": "重要結算日期",
+            "title": "臺指期貨 / 臺指選擇權月結算",
+            "sourceTitle": "TAIFEX",
+            "sourceUrl": SETTLEMENT_SOURCE_URLS["taifex_index"],
+            "sourceDateTime": f"{next_taifex_monthly.strftime('%Y/%m/%d')}（依契約規則：第 3 個星期三）",
+            "taiwanDateTime": f"{next_taifex_monthly.strftime('%Y/%m/%d')}（台灣時間）",
+            "status": "依官方規則推算",
+            "note": "期交所股價指數期貨 / 選擇權月契約最後交易日與最後結算日通常為交割月份第 3 個星期三；若遇假日仍請以交易所行事曆複核。",
+        },
+        {
+            "category": "重要結算日期",
+            "title": "富時臺灣中型100期貨結算",
+            "sourceTitle": "TAIFEX",
+            "sourceUrl": SETTLEMENT_SOURCE_URLS["taifex_m1f"],
+            "sourceDateTime": f"{next_taifex_monthly.strftime('%Y/%m/%d')}（依契約規則：第 3 個星期三）",
+            "taiwanDateTime": f"{next_taifex_monthly.strftime('%Y/%m/%d')}（台灣時間）",
+            "status": "依官方規則推算",
+            "note": "臺灣中型100期貨交易標的為富時臺灣證券交易所臺灣中型100指數，官網契約規格載明最後交易日為交割月份第 3 個星期三。",
+        },
+        {
+            "category": "重要結算日期",
+            "title": "美股期貨季結算（道瓊 / 標普500 / 那斯達克100 / 費半）",
+            "sourceTitle": "TAIFEX",
+            "sourceUrl": SETTLEMENT_SOURCE_URLS["taifex_us"],
+            "sourceDateTime": f"{next_us_quarter.strftime('%Y/%m/%d')}（依契約規則：季月第 3 個星期五）",
+            "taiwanDateTime": f"{next_us_quarter.strftime('%Y/%m/%d')}（台灣時間）",
+            "status": "依官方規則推算",
+            "note": "期交所美股指數期貨季月契約通常依季度循環結算，本站以季月第 3 個星期五作提醒用途；實際仍以交易所契約規格與行事曆為準。",
+        },
+        {
+            "category": "重要結算日期",
+            "title": "英國富時100期貨季結算",
+            "sourceTitle": "TAIFEX",
+            "sourceUrl": SETTLEMENT_SOURCE_URLS["taifex_ftse100"],
+            "sourceDateTime": f"{next_us_quarter.strftime('%Y/%m/%d')}（依契約規則：季月第 3 個星期五）",
+            "taiwanDateTime": f"{next_us_quarter.strftime('%Y/%m/%d')}（台灣時間）",
+            "status": "依官方規則推算",
+            "note": "英國富時100期貨以季月契約為主，本站以季月第 3 個星期五作提醒用途；若遇標的市場假期，請再依交易所行事曆複核。",
+        },
+    ]
+
+
 def build_important_dates(report_date: str) -> dict[str, Any]:
     items = [build_tsmc_event(report_date)]
     notes = [
         "台積電法說改為優先顯示下一次已公告但尚未舉行的日期；若官網尚未公告，本站不自行推估。",
         "美國經濟數據時間一律先採官方來源原始時區，再轉換為台灣時間。",
         "CPI / PPI / 非農目前改用官方 BLS 排程補齊；若超出目前內建年度，會標示待下一年度排程。",
+        "重要結算日期提醒為依各商品官方契約規則推算的下一個日期，若遇假日或市場休市，仍應以交易所行事曆複核。",
     ]
+    items.extend(build_settlement_reminders(report_date))
     items.extend(build_bls_static_dates(report_date))
     try:
         items.extend(fetch_bea_important_dates(report_date))
