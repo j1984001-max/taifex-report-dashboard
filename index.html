@@ -774,6 +774,11 @@
                     <div class="mt-6">
                         <h4 class="font-black mb-2">大額交易人五大 / 十大特定法人</h4>
                         <div class="section-meta-grid">${largeTraderCards}</div>
+                        ${section.largeTraderSummary && section.largeTraderSummary.length ? `
+                            <div class="mt-4">
+                                ${renderBullets("大額交易人特定法人變動說明", section.largeTraderSummary)}
+                            </div>
+                        ` : ""}
                     </div>
                 ` : ""}
                 ${section.optionHighlights && section.optionHighlights.length ? `
