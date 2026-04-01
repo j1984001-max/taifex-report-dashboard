@@ -717,6 +717,18 @@
                     </div>
                 </div>
             `).join("");
+            const optionSpecificCards = (section.optionSpecificCards || []).map((item) => `
+                <div class="overview-card">
+                    <div class="font-black mb-2">${escapeHtml(item.label)}</div>
+                    <div class="text-sm leading-7">
+                        <div>買方前五大：${escapeHtml(item.longTop5Qty)}，單日 <span class="${signedTextClass(item.longTop5Day)}">${escapeHtml(item.longTop5Day)}</span>，累積 <span class="${signedTextClass(item.longTop5Cycle)}">${escapeHtml(item.longTop5Cycle)}</span></div>
+                        <div>買方前十大：${escapeHtml(item.longTop10Qty)}，單日 <span class="${signedTextClass(item.longTop10Day)}">${escapeHtml(item.longTop10Day)}</span>，累積 <span class="${signedTextClass(item.longTop10Cycle)}">${escapeHtml(item.longTop10Cycle)}</span></div>
+                        <div>賣方前五大：${escapeHtml(item.shortTop5Qty)}，單日 <span class="${signedTextClass(item.shortTop5Day)}">${escapeHtml(item.shortTop5Day)}</span>，累積 <span class="${signedTextClass(item.shortTop5Cycle)}">${escapeHtml(item.shortTop5Cycle)}</span></div>
+                        <div>賣方前十大：${escapeHtml(item.shortTop10Qty)}，單日 <span class="${signedTextClass(item.shortTop10Day)}">${escapeHtml(item.shortTop10Day)}</span>，累積 <span class="${signedTextClass(item.shortTop10Cycle)}">${escapeHtml(item.shortTop10Cycle)}</span></div>
+                        <div class="text-slate-500 dark:text-slate-400">累積基準：${escapeHtml(item.cycleStartDate)}</div>
+                    </div>
+                </div>
+            `).join("");
 
             return sectionShell("期貨差異變動速覽", `
                 <div class="text-sm leading-7">
@@ -745,6 +757,13 @@
                         <h4 class="font-black mb-2">選擇權分契約速覽</h4>
                         <div class="section-meta-grid">${optionCards}</div>
                         ${renderBullets("選擇權重點摘要", section.optionHighlights)}
+                        ${section.optionSpecificHighlights && section.optionSpecificHighlights.length ? `
+                            <div class="mt-5">
+                                <h5 class="font-black mb-2">選擇權週契約 / 月契約特定法人</h5>
+                                <div class="section-meta-grid">${optionSpecificCards}</div>
+                                ${renderBullets("選擇權特定法人變動說明", section.optionSpecificHighlights)}
+                            </div>
+                        ` : ""}
                     </div>
                 ` : ""}
             `);

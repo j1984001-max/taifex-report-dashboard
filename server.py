@@ -1167,6 +1167,65 @@ def parse_large_trader(table: list[list[str]], monthly_code: str) -> dict[str, A
     return monthly or contracts[0]
 
 
+def parse_large_trader_option_rows(table: list[list[str]], monthly_code: str) -> list[dict[str, Any]]:
+    expiry = f"{monthly_code[:4]} {monthly_code[4:]}"
+    rows: list[dict[str, Any]] = []
+    for row in table[3:]:
+        if len(row) < 11:
+            continue
+        if row[0] not in {"臺指 買權", "臺指 賣權"} or row[1] not in {"週契約", expiry}:
+            continue
+        long_top5_qty, long_top5_specific_qty = parse_dual_number(row[2])
+        long_top5_pct, long_top5_specific_pct = parse_dual_percent(row[3])
+        long_top10_qty, long_top10_specific_qty = parse_dual_number(row[4])
+        long_top10_pct, long_top10_specific_pct = parse_dual_percent(row[5])
+        short_top5_qty, short_top5_specific_qty = parse_dual_number(row[6])
+        short_top5_pct, short_top5_specific_pct = parse_dual_percent(row[7])
+        short_top10_qty, short_top10_specific_qty = parse_dual_number(row[8])
+        short_top10_pct, short_top10_specific_pct = parse_dual_percent(row[9])
+        rows.append(
+            {
+                "optionSide": "call" if "買權" in row[0] else "put",
+                "optionLabel": row[0],
+                "contractType": "weekly" if row[1] == "週契約" else "monthly",
+                "contractLabel": "週契約" if row[1] == "週契約" else "月契約",
+                "expiry": row[1],
+                "longTop5Qty": long_top5_qty,
+                "longTop5SpecificQty": long_top5_specific_qty,
+                "longTop5Pct": long_top5_pct,
+                "longTop5SpecificPct": long_top5_specific_pct,
+                "longTop10Qty": long_top10_qty,
+                "longTop10SpecificQty": long_top10_specific_qty,
+                "longTop10Pct": long_top10_pct,
+                "longTop10SpecificPct": long_top10_specific_pct,
+                "shortTop5Qty": short_top5_qty,
+                "shortTop5SpecificQty": short_top5_specific_qty,
+                "shortTop5Pct": short_top5_pct,
+                "shortTop5SpecificPct": short_top5_specific_pct,
+                "shortTop10Qty": short_top10_qty,
+                "shortTop10SpecificQty": short_top10_specific_qty,
+                "shortTop10Pct": short_top10_pct,
+                "shortTop10SpecificPct": short_top10_specific_pct,
+                "marketOi": to_int(row[10]),
+            }
+        )
+    return rows
+
+
+def fetch_large_trader_option_for_date(report_date: str, monthly_code: str) -> list[dict[str, Any]] | None:
+    try:
+        html = request_html(
+            TAIFEX,
+            "/cht/3/largeTraderOptQry",
+            {"queryDate": report_date, "contractId": "TXO"},
+        )
+        table = find_table(parse_tables(html), "契約名稱")
+        rows = parse_large_trader_option_rows(table, monthly_code)
+        return rows or None
+    except Exception:
+        return None
+
+
 def fetch_large_trader_for_date(report_date: str, monthly_code: str) -> list[dict[str, Any]] | None:
     try:
         rows = request_csv_rows(
@@ -2239,6 +2298,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     if not large_trader_rows:
         raise ValueError("找不到大額交易人資料")
     large_trader = next((row for row in large_trader_rows if row["contractType"] == "monthly"), large_trader_rows[0])
+    large_trader_option_rows = fetch_large_trader_option_for_date(effective_date, tx_reference["contract"]) or []
     oi_change = parse_oi_change(oi_change_table, effective_date)
     base_date = oi_change["date"] or effective_date
     futures_history = fetch_futures_history_rows(base_date, 5)
@@ -2251,6 +2311,11 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     large_cycle_rows = {
         "weekly": large_trader_rows if weekly_cycle_start_date == base_date else fetch_large_trader_for_date(weekly_cycle_start_date, tx_reference["contract"]),
         "monthly": large_trader_rows if monthly_cycle_start_date == base_date else fetch_large_trader_for_date(monthly_cycle_start_date, tx_reference["contract"]),
+    }
+    large_option_previous_rows = fetch_large_trader_option_for_date(previous_business_day(base_date), tx_reference["contract"]) or []
+    large_option_cycle_rows = {
+        "weekly": large_trader_option_rows if weekly_cycle_start_date == base_date else (fetch_large_trader_option_for_date(weekly_cycle_start_date, tx_reference["contract"]) or []),
+        "monthly": large_trader_option_rows if monthly_cycle_start_date == base_date else (fetch_large_trader_option_for_date(monthly_cycle_start_date, tx_reference["contract"]) or []),
     }
     futures_contracts = enrich_futures_with_history(futures_contracts, futures_history, cycle_start_rows, monthly_cycle_start_date)
     option_contracts = enrich_option_with_history(option_contracts, option_history, option_cycle_start_rows, monthly_cycle_start_date)
@@ -2503,6 +2568,8 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     ]
     report["changeOverview"]["largeTraderSummary"] = []
     report["changeOverview"]["largeTraderCards"] = []
+    report["changeOverview"]["optionSpecificHighlights"] = []
+    report["changeOverview"]["optionSpecificCards"] = []
     for row in large_trader_rows:
         prev = previous_by_type.get(row["contractType"])
         cycle = cycle_by_type.get(row["contractType"])
@@ -2568,6 +2635,49 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         )
         large_highlights.append(
             f"{row['contractLabel']}特定法人賣方變動：前五大較前一營業日 {format_signed(short5_day)}、自 {cycle_label_date} 起累積 {format_signed(short5_cycle)}；前十大較前一營業日 {format_signed(short10_day)}、自 {cycle_label_date} 起累積 {format_signed(short10_cycle)}。"
+        )
+
+    option_prev_map = {
+        (row["contractType"], row["optionSide"]): row
+        for row in large_option_previous_rows
+    }
+    option_cycle_map = {
+        (row["contractType"], row["optionSide"]): row
+        for key, rows in large_option_cycle_rows.items()
+        for row in rows
+    }
+    for row in large_trader_option_rows:
+        prev = option_prev_map.get((row["contractType"], row["optionSide"]))
+        cycle = option_cycle_map.get((row["contractType"], row["optionSide"]))
+        cycle_label_date = weekly_cycle_start_date if row["contractType"] == "weekly" else monthly_cycle_start_date
+        long5_day = None if not prev or prev["longTop5SpecificQty"] is None else row["longTop5SpecificQty"] - prev["longTop5SpecificQty"]
+        long10_day = None if not prev or prev["longTop10SpecificQty"] is None else row["longTop10SpecificQty"] - prev["longTop10SpecificQty"]
+        short5_day = None if not prev or prev["shortTop5SpecificQty"] is None else row["shortTop5SpecificQty"] - prev["shortTop5SpecificQty"]
+        short10_day = None if not prev or prev["shortTop10SpecificQty"] is None else row["shortTop10SpecificQty"] - prev["shortTop10SpecificQty"]
+        long5_cycle = None if not cycle or cycle["longTop5SpecificQty"] is None else row["longTop5SpecificQty"] - cycle["longTop5SpecificQty"]
+        long10_cycle = None if not cycle or cycle["longTop10SpecificQty"] is None else row["longTop10SpecificQty"] - cycle["longTop10SpecificQty"]
+        short5_cycle = None if not cycle or cycle["shortTop5SpecificQty"] is None else row["shortTop5SpecificQty"] - cycle["shortTop5SpecificQty"]
+        short10_cycle = None if not cycle or cycle["shortTop10SpecificQty"] is None else row["shortTop10SpecificQty"] - cycle["shortTop10SpecificQty"]
+        report["changeOverview"]["optionSpecificHighlights"].append(
+            f"{row['contractLabel']}{row['optionLabel']}特定法人：買方前五大 {specific_value_text(row['longTop5SpecificQty'])} 口，單日 {format_signed(long5_day)}、累積 {format_signed(long5_cycle)}；買方前十大 {specific_value_text(row['longTop10SpecificQty'])} 口，單日 {format_signed(long10_day)}、累積 {format_signed(long10_cycle)}；賣方前五大 {specific_value_text(row['shortTop5SpecificQty'])} 口，單日 {format_signed(short5_day)}、累積 {format_signed(short5_cycle)}；賣方前十大 {specific_value_text(row['shortTop10SpecificQty'])} 口，單日 {format_signed(short10_day)}、累積 {format_signed(short10_cycle)}。"
+        )
+        report["changeOverview"]["optionSpecificCards"].append(
+            {
+                "label": f"{row['contractLabel']} {row['optionLabel']}特定法人",
+                "longTop5Qty": specific_value_text(row["longTop5SpecificQty"]),
+                "longTop5Day": format_signed(long5_day),
+                "longTop5Cycle": format_signed(long5_cycle),
+                "longTop10Qty": specific_value_text(row["longTop10SpecificQty"]),
+                "longTop10Day": format_signed(long10_day),
+                "longTop10Cycle": format_signed(long10_cycle),
+                "shortTop5Qty": specific_value_text(row["shortTop5SpecificQty"]),
+                "shortTop5Day": format_signed(short5_day),
+                "shortTop5Cycle": format_signed(short5_cycle),
+                "shortTop10Qty": specific_value_text(row["shortTop10SpecificQty"]),
+                "shortTop10Day": format_signed(short10_day),
+                "shortTop10Cycle": format_signed(short10_cycle),
+                "cycleStartDate": cycle_label_date,
+            }
         )
 
     report["tables"]["C"]["highlights"] = large_highlights
