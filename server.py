@@ -1685,8 +1685,13 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
     tf_foreign = next((row for row in report["tables"]["B"]["rows"] if row["product"] == "金融期貨" and row["institution"] == "外資"), None)
     mtx_foreign = next(row for row in report["tables"]["B"]["rows"] if row["product"] == "小型臺指期貨" and row["institution"] == "外資")
     tmf_foreign = next(row for row in report["tables"]["B"]["rows"] if row["product"] == "微型臺指期貨" and row["institution"] == "外資")
+    option_rows = report["tables"]["D"]["rows"]
+    option_foreign = next(row for row in option_rows if row["institution"] == "外資")
+    option_dealer = next(row for row in option_rows if row["institution"] == "自營商")
+    option_investment = next(row for row in option_rows if row["institution"] == "投信")
     large_rows = report["tables"]["C"]["rows"]
     large = next((row for row in large_rows if row.get("contractType") == "monthly"), large_rows[0])
+    large_weekly = next((row for row in large_rows if row.get("contractType") == "weekly"), None)
     levels = report["tables"]["E"]
     primary_levels = levels["charts"][0]
     oi_focus = report["tables"]["F"]["rows"]
@@ -1701,6 +1706,7 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
         f"外資台指相關商品未平倉淨額為 {foreign['combinedOiNetQty']:+,} 口；自營商為 {dealer['combinedOiNetQty']:+,} 口；投信為 {investment['combinedOiNetQty']:+,} 口。",
         f"近月 TX 結算價 {levels['txSettlement']:,}；月選主契約最大 Call OI 在 {primary_levels['ceiling']['strike']:,}，最大 Put OI 在 {primary_levels['floor']['strike']:,}。",
         f"大額交易人近月前五大買方占比 {large['longTop5Pct']:.1f}%，前五大賣方占比 {large['shortTop5Pct']:.1f}%。",
+        f"選擇權未平倉淨額方面，外資 {format_signed(option_foreign['oiNetQty'])} 口、自營商 {format_signed(option_dealer['oiNetQty'])} 口、投信 {format_signed(option_investment['oiNetQty'])} 口。",
     ]
 
     contradictions = []
@@ -1759,6 +1765,15 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
                 ),
             },
             {
+                "title": "選擇權分契約分析",
+                "body": (
+                    f"外資在選擇權未平倉淨額 {format_signed(option_foreign['oiNetQty'])} 口，較前一營業日 {format_signed(option_foreign['dayChangeOiNetQty'])} 口，自 {option_foreign['cycleStartDate']} 起累積 {format_signed(option_foreign['cycleChangeOiNetQty'])} 口；"
+                    f"自營商為 {format_signed(option_dealer['oiNetQty'])} 口，單日 {format_signed(option_dealer['dayChangeOiNetQty'])}、累積 {format_signed(option_dealer['cycleChangeOiNetQty'])}；"
+                    f"投信為 {format_signed(option_investment['oiNetQty'])} 口，單日 {format_signed(option_investment['dayChangeOiNetQty'])}、累積 {format_signed(option_investment['cycleChangeOiNetQty'])}。"
+                    " 本段以 D 表法人未平倉淨額與其前一日、結算後累積變動為基礎，不補推未列示策略。"
+                ),
+            },
+            {
                 "title": "大額交易人集中度分析",
                 "body": (
                     f"近月前五大買方占比 {large['longTop5Pct']:.1f}%，前十大買方占比 {large['longTop10Pct']:.1f}%，"
@@ -1767,6 +1782,19 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
                     f"代表賣方第 6 至第 10 大再增加 {large['shortTop10Qty'] - large['shortTop5Qty']:,} 口、{large['shortTop10Pct'] - large['shortTop5Pct']:+.1f} 個百分點。"
                     f" 特定法人部分，買方前五大為 {specific_value_text(large['longTop5SpecificQty'])} 口、前十大為 {specific_value_text(large['longTop10SpecificQty'])} 口；"
                     f"賣方前五大為 {specific_value_text(large['shortTop5SpecificQty'])} 口、前十大為 {specific_value_text(large['shortTop10SpecificQty'])} 口。"
+                ),
+            },
+            {
+                "title": "大額交易人特定法人分析",
+                "body": (
+                    f"月契約特定法人買方前五大 {specific_value_text(large['longTop5SpecificQty'])} 口、前十大 {specific_value_text(large['longTop10SpecificQty'])} 口；"
+                    f"賣方前五大 {specific_value_text(large['shortTop5SpecificQty'])} 口、前十大 {specific_value_text(large['shortTop10SpecificQty'])} 口。"
+                    + (
+                        f" 週契約特定法人買方前五大 {specific_value_text(large_weekly['longTop5SpecificQty'])} 口、前十大 {specific_value_text(large_weekly['longTop10SpecificQty'])} 口；"
+                        f"賣方前五大 {specific_value_text(large_weekly['shortTop5SpecificQty'])} 口、前十大 {specific_value_text(large_weekly['shortTop10SpecificQty'])} 口。"
+                        if large_weekly else ""
+                    )
+                    + " 若週契約特定法人欄位為 0，表示官方 CSV 當日欄位即為 0，非本站自行補零。"
                 ),
             },
             {
