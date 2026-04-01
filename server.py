@@ -2001,7 +2001,18 @@ def build_overview_prediction(report: dict[str, Any]) -> dict[str, Any]:
     else:
         summary = f"預測分析：隔日偏震盪，較高機率維持在 {lower_bound:,} 至 {upper_bound:,} 區間。"
 
-    return {"summary": summary, "reasons": reasons[:5]}
+    if diff <= -2 and primary["floor"]["putOi"] > primary["ceiling"]["callOi"]:
+        psychology = "法人心理結構：主力部位偏空，但下方防守仍厚，較像壓低測支撐、偏向誘空結構，不宜把弱勢直接解讀成單邊失守。"
+    elif diff >= 2 and primary["ceiling"]["callOi"] > primary["floor"]["putOi"]:
+        psychology = "法人心理結構：主力部位偏多，但上方壓力仍重，較像拉高吸引追價、偏向誘多結構，不宜把強勢直接解讀成一路急拉。"
+    elif diff <= -2:
+        psychology = "法人心理結構：目前較接近順勢偏空，若近價支撐失守，容易出現追空慣性。"
+    elif diff >= 2:
+        psychology = "法人心理結構：目前較接近順勢偏多，若近價壓力被帶量突破，容易出現追價慣性。"
+    else:
+        psychology = "法人心理結構：多空訊號並未完全同向，較像區間內反覆洗盤，容易同時出現誘多與誘空。"
+
+    return {"summary": summary, "psychology": psychology, "reasons": reasons[:5]}
 
 
 def build_telegram_text(report: dict[str, Any]) -> str:
@@ -2678,6 +2689,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     report["changeOverview"]["largeTraderCards"] = []
     report["changeOverview"]["optionSpecificHighlights"] = []
     report["changeOverview"]["optionSpecificCards"] = []
+    option_specific_entries: list[dict[str, Any]] = []
     for row in large_trader_rows:
         prev = previous_by_type.get(row["contractType"])
         cycle = cycle_by_type.get(row["contractType"])
@@ -2766,27 +2778,40 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         long10_cycle = None if not cycle or cycle["longTop10SpecificQty"] is None else row["longTop10SpecificQty"] - cycle["longTop10SpecificQty"]
         short5_cycle = None if not cycle or cycle["shortTop5SpecificQty"] is None else row["shortTop5SpecificQty"] - cycle["shortTop5SpecificQty"]
         short10_cycle = None if not cycle or cycle["shortTop10SpecificQty"] is None else row["shortTop10SpecificQty"] - cycle["shortTop10SpecificQty"]
-        report["changeOverview"]["optionSpecificHighlights"].append(
-            f"{row['contractLabel']}{row['optionLabel']}特定法人：買方前五大 {specific_value_text(row['longTop5SpecificQty'])} 口，單日 {format_signed(long5_day)}、累積 {format_signed(long5_cycle)}；買方前十大 {specific_value_text(row['longTop10SpecificQty'])} 口，單日 {format_signed(long10_day)}、累積 {format_signed(long10_cycle)}；賣方前五大 {specific_value_text(row['shortTop5SpecificQty'])} 口，單日 {format_signed(short5_day)}、累積 {format_signed(short5_cycle)}；賣方前十大 {specific_value_text(row['shortTop10SpecificQty'])} 口，單日 {format_signed(short10_day)}、累積 {format_signed(short10_cycle)}。"
-        )
-        report["changeOverview"]["optionSpecificCards"].append(
+        option_specific_entries.append(
             {
-                "label": f"{row['contractLabel']} {row['optionLabel']}特定法人",
-                "longTop5Qty": specific_value_text(row["longTop5SpecificQty"]),
-                "longTop5Day": format_signed(long5_day),
-                "longTop5Cycle": format_signed(long5_cycle),
-                "longTop10Qty": specific_value_text(row["longTop10SpecificQty"]),
-                "longTop10Day": format_signed(long10_day),
-                "longTop10Cycle": format_signed(long10_cycle),
-                "shortTop5Qty": specific_value_text(row["shortTop5SpecificQty"]),
-                "shortTop5Day": format_signed(short5_day),
-                "shortTop5Cycle": format_signed(short5_cycle),
-                "shortTop10Qty": specific_value_text(row["shortTop10SpecificQty"]),
-                "shortTop10Day": format_signed(short10_day),
-                "shortTop10Cycle": format_signed(short10_cycle),
-                "cycleStartDate": cycle_label_date,
+                "order": (
+                    0 if row["optionLabel"] == "臺指買權" else 1,
+                    0 if row["contractType"] == "weekly" else 1,
+                ),
+                "highlight": (
+                    f"{row['contractLabel']}{row['optionLabel']}特定法人：買方前五大 {specific_value_text(row['longTop5SpecificQty'])} 口，單日 {format_signed(long5_day)}、累積 {format_signed(long5_cycle)}；"
+                    f"買方前十大 {specific_value_text(row['longTop10SpecificQty'])} 口，單日 {format_signed(long10_day)}、累積 {format_signed(long10_cycle)}；"
+                    f"賣方前五大 {specific_value_text(row['shortTop5SpecificQty'])} 口，單日 {format_signed(short5_day)}、累積 {format_signed(short5_cycle)}；"
+                    f"賣方前十大 {specific_value_text(row['shortTop10SpecificQty'])} 口，單日 {format_signed(short10_day)}、累積 {format_signed(short10_cycle)}。"
+                ),
+                "card": {
+                    "label": f"{row['contractLabel']} {row['optionLabel']}特定法人",
+                    "longTop5Qty": specific_value_text(row["longTop5SpecificQty"]),
+                    "longTop5Day": format_signed(long5_day),
+                    "longTop5Cycle": format_signed(long5_cycle),
+                    "longTop10Qty": specific_value_text(row["longTop10SpecificQty"]),
+                    "longTop10Day": format_signed(long10_day),
+                    "longTop10Cycle": format_signed(long10_cycle),
+                    "shortTop5Qty": specific_value_text(row["shortTop5SpecificQty"]),
+                    "shortTop5Day": format_signed(short5_day),
+                    "shortTop5Cycle": format_signed(short5_cycle),
+                    "shortTop10Qty": specific_value_text(row["shortTop10SpecificQty"]),
+                    "shortTop10Day": format_signed(short10_day),
+                    "shortTop10Cycle": format_signed(short10_cycle),
+                    "cycleStartDate": cycle_label_date,
+                },
             }
         )
+
+    option_specific_entries.sort(key=lambda item: item["order"])
+    report["changeOverview"]["optionSpecificHighlights"] = [item["highlight"] for item in option_specific_entries]
+    report["changeOverview"]["optionSpecificCards"] = [item["card"] for item in option_specific_entries]
 
     report["tables"]["C"]["highlights"] = large_highlights
     report["analysis"] = build_analysis(report)
