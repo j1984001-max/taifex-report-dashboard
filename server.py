@@ -1923,6 +1923,87 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_overview_prediction(report: dict[str, Any]) -> dict[str, Any]:
+    summary_rows = report["tables"]["A"]["rows"]
+    foreign = next(row for row in summary_rows if row["institution"] == "外資")
+    tx_foreign = next(row for row in report["tables"]["B"]["rows"] if row["product"] == "臺股期貨" and row["institution"] == "外資")
+    option_foreign = next(row for row in report["tables"]["D"]["rows"] if row["institution"] == "外資")
+    monthly_large = next((row for row in report["tables"]["C"]["rows"] if row.get("contractType") == "monthly"), None)
+    levels = report["tables"]["E"]
+    primary = levels["charts"][0]
+    latest_ratio = report["tables"]["G"]["rows"][0] if report["tables"]["G"]["rows"] else None
+    shared_support = levels.get("sharedSupport", {})
+    shared_resistance = levels.get("sharedResistance", {})
+
+    settlement = levels["txSettlement"]
+    lower_bound = shared_support.get("rangeHigh") or primary["defense"]["strike"]
+    upper_bound = shared_resistance.get("rangeLow") or primary["ceiling"]["strike"]
+
+    bull_score = 0
+    bear_score = 0
+    reasons: list[str] = []
+
+    if foreign["combinedOiNetQty"] < 0:
+        bear_score += 2
+        reasons.append(f"外資台指相關商品未平倉淨額 {foreign['combinedOiNetQty']:+,} 口，整體主力部位仍偏空。")
+    elif foreign["combinedOiNetQty"] > 0:
+        bull_score += 2
+        reasons.append(f"外資台指相關商品未平倉淨額 {foreign['combinedOiNetQty']:+,} 口，整體主力部位偏多。")
+
+    if tx_foreign["dayChangeOiNetQty"] > 0:
+        bull_score += 1
+        reasons.append(f"外資臺股期貨未平倉淨額單日變動 {tx_foreign['dayChangeOiNetQty']:+,} 口，期貨主力部位較前一日改善。")
+    elif tx_foreign["dayChangeOiNetQty"] < 0:
+        bear_score += 1
+        reasons.append(f"外資臺股期貨未平倉淨額單日變動 {tx_foreign['dayChangeOiNetQty']:+,} 口，期貨主力部位較前一日轉弱。")
+
+    if option_foreign["dayChangeOiNetQty"] > 0:
+        bull_score += 1
+        reasons.append(f"外資選擇權未平倉淨額單日變動 {option_foreign['dayChangeOiNetQty']:+,} 口，選擇權法人部位略偏多。")
+    elif option_foreign["dayChangeOiNetQty"] < 0:
+        bear_score += 1
+        reasons.append(f"外資選擇權未平倉淨額單日變動 {option_foreign['dayChangeOiNetQty']:+,} 口，選擇權法人部位略偏空。")
+
+    if primary["floor"]["putOi"] > primary["ceiling"]["callOi"]:
+        bull_score += 1
+        reasons.append(
+            f"月選主撐 {primary['floor']['strike']:,} Put OI {format_number(primary['floor']['putOi'])} 口，高於主壓 {primary['ceiling']['strike']:,} Call OI {format_number(primary['ceiling']['callOi'])} 口，下方防守較厚。"
+        )
+    elif primary["ceiling"]["callOi"] > primary["floor"]["putOi"]:
+        bear_score += 1
+        reasons.append(
+            f"月選主壓 {primary['ceiling']['strike']:,} Call OI {format_number(primary['ceiling']['callOi'])} 口，高於主撐 {primary['floor']['strike']:,} Put OI {format_number(primary['floor']['putOi'])} 口，上方壓力較重。"
+        )
+
+    if latest_ratio:
+        if latest_ratio["oiRatio"] >= 110:
+            bear_score += 1
+            reasons.append(f"未平倉量 PCR {latest_ratio['oiRatio']:.2f}% 偏高，市場避險需求仍偏重。")
+        elif latest_ratio["oiRatio"] <= 95:
+            bull_score += 1
+            reasons.append(f"未平倉量 PCR {latest_ratio['oiRatio']:.2f}% 偏低，情緒面較偏向風險承擔。")
+
+    if monthly_large:
+        long_specific = monthly_large["longTop10SpecificQty"] or 0
+        short_specific = monthly_large["shortTop10SpecificQty"] or 0
+        if long_specific > short_specific:
+            bull_score += 1
+            reasons.append(f"月契約特定法人前十大買方 {format_number(long_specific)} 口，高於賣方前十大 {format_number(short_specific)} 口。")
+        elif short_specific > long_specific:
+            bear_score += 1
+            reasons.append(f"月契約特定法人前十大賣方 {format_number(short_specific)} 口，高於買方前十大 {format_number(long_specific)} 口。")
+
+    diff = bull_score - bear_score
+    if diff >= 2:
+        summary = f"預測分析：隔日偏多，較高機率在 {settlement:,} 上方至 {upper_bound:,} 間震盪。"
+    elif diff <= -2:
+        summary = f"預測分析：隔日偏空，較高機率在 {lower_bound:,} 至 {settlement:,} 間震盪。"
+    else:
+        summary = f"預測分析：隔日偏震盪，較高機率維持在 {lower_bound:,} 至 {upper_bound:,} 區間。"
+
+    return {"summary": summary, "reasons": reasons[:5]}
+
+
 def build_telegram_text(report: dict[str, Any]) -> str:
     foreign = next(row for row in report["tables"]["A"]["rows"] if row["institution"] == "外資")
     levels = report["tables"]["E"]["charts"][0]
@@ -2709,6 +2790,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
 
     report["tables"]["C"]["highlights"] = large_highlights
     report["analysis"] = build_analysis(report)
+    report["changeOverview"]["prediction"] = build_overview_prediction(report)
     report["telegram"] = build_telegram_text(report)
     report["email"] = build_email_text(report)
     return report
