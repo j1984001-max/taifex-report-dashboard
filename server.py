@@ -1751,6 +1751,7 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
     large_rows = report["tables"]["C"]["rows"]
     large = next((row for row in large_rows if row.get("contractType") == "monthly"), large_rows[0])
     large_weekly = next((row for row in large_rows if row.get("contractType") == "weekly"), None)
+    option_specific_rows = report["changeOverview"].get("optionSpecificCards", [])
     levels = report["tables"]["E"]
     primary_levels = levels["charts"][0]
     oi_focus = report["tables"]["F"]["rows"]
@@ -1854,6 +1855,18 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
                         if large_weekly else ""
                     )
                     + " 若週契約特定法人欄位為 0，表示官方 CSV 當日欄位即為 0，非本站自行補零。"
+                ),
+            },
+            {
+                "title": "選擇權特定法人分析",
+                "body": (
+                    "；".join(
+                        f"{item['label']}：買方前五大 {item['longTop5Qty']}、前十大 {item['longTop10Qty']}；"
+                        f"賣方前五大 {item['shortTop5Qty']}、前十大 {item['shortTop10Qty']}；"
+                        f"單日變動分別為 {item['longTop5Day']} / {item['longTop10Day']} / {item['shortTop5Day']} / {item['shortTop10Day']}，"
+                        f"自 {item['cycleStartDate']} 起累積為 {item['longTop5Cycle']} / {item['longTop10Cycle']} / {item['shortTop5Cycle']} / {item['shortTop10Cycle']}"
+                        for item in option_specific_rows
+                    ) if option_specific_rows else "本日缺少選擇權特定法人資料。"
                 ),
             },
             {
