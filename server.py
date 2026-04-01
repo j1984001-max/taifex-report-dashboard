@@ -2092,12 +2092,20 @@ def build_overview_prediction(report: dict[str, Any]) -> dict[str, Any]:
             reasons.append(f"月契約特定法人前十大賣方 {format_number(short_specific)} 口，高於買方前十大 {format_number(long_specific)} 口。")
 
     diff = bull_score - bear_score
+    range_low = min(lower_bound, upper_bound, settlement)
+    range_high = max(lower_bound, upper_bound, settlement)
+    if range_low == range_high:
+        range_low = min(primary["defense"]["strike"], settlement)
+        range_high = max(primary["ceiling"]["strike"], settlement)
+    if range_low == range_high:
+        range_low = settlement - 200
+        range_high = settlement + 200
     if diff >= 2:
-        summary = f"預測分析：隔日偏多，較高機率在 {settlement:,} 上方至 {upper_bound:,} 間震盪。"
+        summary = f"預測分析：隔日偏多，較高機率在 {settlement:,} 至 {range_high:,} 間震盪。"
     elif diff <= -2:
-        summary = f"預測分析：隔日偏空，較高機率在 {lower_bound:,} 至 {settlement:,} 間震盪。"
+        summary = f"預測分析：隔日偏空，較高機率在 {range_low:,} 至 {settlement:,} 間震盪。"
     else:
-        summary = f"預測分析：隔日偏震盪，較高機率維持在 {lower_bound:,} 至 {upper_bound:,} 區間。"
+        summary = f"預測分析：隔日偏震盪，較高機率維持在 {range_low:,} 至 {range_high:,} 區間。"
 
     if diff <= -2 and primary["floor"]["putOi"] > primary["ceiling"]["callOi"]:
         psychology = "法人心理結構：主力部位偏空，但下方防守仍厚，較像壓低測支撐、偏向誘空結構，不宜把弱勢直接解讀成單邊失守。"
@@ -2113,6 +2121,28 @@ def build_overview_prediction(report: dict[str, Any]) -> dict[str, Any]:
     return {"summary": summary, "psychology": psychology, "reasons": reasons[:5]}
 
 
+def build_telegram_important_date_lines(report: dict[str, Any], limit: int = 10) -> list[str]:
+    section = report.get("importantDates", {})
+    rows = list(section.get("rows", []))
+    rows.sort(
+        key=lambda row: (
+            0 if row.get("urgent") else 1,
+            0 if row.get("category") == "台積電法說" else 1,
+            0 if row.get("category") == "重要結算日期" else 1,
+            9999 if row.get("daysUntil") is None else row["daysUntil"],
+            row.get("title", ""),
+        )
+    )
+    lines: list[str] = []
+    for row in rows[:limit]:
+        status = row.get("status", "")
+        tw_time = row.get("taiwanDateTime", "缺資料")
+        days_until = row.get("daysUntil")
+        suffix = f"，距今 {days_until} 天" if days_until is not None else ""
+        lines.append(f"- {row['title']}：{tw_time}（{status}）{suffix}")
+    return lines
+
+
 def build_telegram_text(report: dict[str, Any]) -> str:
     foreign = next(row for row in report["tables"]["A"]["rows"] if row["institution"] == "外資")
     levels = report["tables"]["E"]["charts"][0]
@@ -2123,8 +2153,19 @@ def build_telegram_text(report: dict[str, Any]) -> str:
         f"{report['meta']['date']} 台指籌碼完整快報",
         f"完整報告：{link}",
         "",
-        "A. 三大法人總表",
     ]
+    if report["changeOverview"].get("urgentHighlights"):
+        lines.extend(["三個營業日內重要日期"])
+        lines.extend(f"- {item}" for item in report["changeOverview"]["urgentHighlights"])
+        lines.append("")
+    important_date_lines = build_telegram_important_date_lines(report)
+    if important_date_lines:
+        lines.extend(["重要日期提醒"])
+        lines.extend(important_date_lines)
+        lines.append("")
+    lines.extend([
+        "A. 三大法人總表",
+    ])
     lines.extend(f"- {item}" for item in report["tables"]["A"]["highlights"])
     lines.extend(["", "B. 三大法人期貨分契約"])
     lines.extend(f"- {item}" for item in report["tables"]["B"]["highlights"])

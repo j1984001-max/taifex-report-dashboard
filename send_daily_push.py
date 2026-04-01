@@ -13,7 +13,7 @@ import urllib.request
 from email.message import EmailMessage
 from pathlib import Path
 
-from server import PUBLIC_BASE_URL, build_report_pdf, cached_report, save_snapshot
+from server import PUBLIC_BASE_URL, build_report_pdf, build_telegram_important_date_lines, cached_report, save_snapshot
 
 
 TELEGRAM_LIMIT = 3500
@@ -89,6 +89,11 @@ def build_quick_overview(report: dict[str, object]) -> str:
     if overview.get("urgentHighlights"):
         lines.extend(["", "三個營業日內重要日期"])
         lines.extend(f"- {item}" for item in overview["urgentHighlights"])
+
+    important_date_lines = build_telegram_important_date_lines(report)
+    if important_date_lines:
+        lines.extend(["", "重要日期提醒"])
+        lines.extend(important_date_lines)
 
     if overview.get("highlights"):
         lines.extend(["", "期貨差異變動速覽"])
