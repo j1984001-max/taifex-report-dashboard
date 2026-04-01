@@ -90,11 +90,6 @@ def build_quick_overview(report: dict[str, object]) -> str:
         lines.extend(["", "三個營業日內重要日期"])
         lines.extend(f"- {item}" for item in overview["urgentHighlights"])
 
-    important_date_lines = build_telegram_important_date_lines(report)
-    if important_date_lines:
-        lines.extend(["", "重要日期提醒"])
-        lines.extend(important_date_lines)
-
     if overview.get("highlights"):
         lines.extend(["", "期貨差異變動速覽"])
         lines.extend(f"- {item}" for item in overview["highlights"])
