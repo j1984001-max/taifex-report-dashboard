@@ -773,24 +773,24 @@
                 ${section.largeTraderCards && section.largeTraderCards.length ? `
                     <div class="mt-6">
                         <h4 class="font-black mb-2">大額交易人五大 / 十大特定法人</h4>
-                        <div class="section-meta-grid">${largeTraderCards}</div>
                         ${section.largeTraderSummary && section.largeTraderSummary.length ? `
                             <div class="mt-4">
                                 ${renderBullets("大額交易人特定法人變動說明", section.largeTraderSummary)}
                             </div>
                         ` : ""}
+                        <div class="section-meta-grid mt-4">${largeTraderCards}</div>
                     </div>
                 ` : ""}
                 ${section.optionHighlights && section.optionHighlights.length ? `
                     <div class="mt-6">
                         <h4 class="font-black mb-2">選擇權分契約速覽</h4>
-                        <div class="section-meta-grid">${optionCards}</div>
                         ${renderBullets("選擇權重點摘要", section.optionHighlights)}
+                        <div class="section-meta-grid mt-4">${optionCards}</div>
                         ${section.optionSpecificHighlights && section.optionSpecificHighlights.length ? `
                             <div class="mt-5">
                                 <h5 class="font-black mb-2">選擇權週契約 / 月契約特定法人</h5>
-                                <div class="section-meta-grid">${optionSpecificCards}</div>
                                 ${renderBullets("選擇權特定法人變動說明", section.optionSpecificHighlights)}
+                                <div class="section-meta-grid mt-4">${optionSpecificCards}</div>
                             </div>
                         ` : ""}
                     </div>

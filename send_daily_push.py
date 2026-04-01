@@ -84,13 +84,40 @@ def build_quick_overview(report: dict[str, object]) -> str:
         f"{meta['date']} 台指籌碼速覽",
         f"完整網頁：{meta['reportUrl']}",
         f"PDF：{PUBLIC_BASE_URL}/api/report.pdf?date={meta['date']}",
-        "",
-        "期貨差異變動速覽",
     ]
-    lines.extend(f"- {item}" for item in overview.get("highlights", []))
+
+    if overview.get("urgentHighlights"):
+        lines.extend(["", "三個營業日內重要日期"])
+        lines.extend(f"- {item}" for item in overview["urgentHighlights"])
+
+    if overview.get("highlights"):
+        lines.extend(["", "期貨差異變動速覽"])
+        lines.extend(f"- {item}" for item in overview["highlights"])
+
     if overview.get("largeTraderSummary"):
         lines.extend(["", "大額交易人前五大 / 前十大"])
         lines.extend(f"- {item}" for item in overview["largeTraderSummary"])
+
+    if overview.get("optionHighlights"):
+        lines.extend(["", "選擇權分契約速覽"])
+        lines.extend(f"- {item}" for item in overview["optionHighlights"])
+
+    if overview.get("optionSpecificHighlights"):
+        lines.extend(["", "選擇權週契約 / 月契約特定法人"])
+        lines.extend(f"- {item}" for item in overview["optionSpecificHighlights"])
+
+    prediction = overview.get("prediction") or {}
+    if prediction:
+        lines.extend(["", "預測分析"])
+        summary = prediction.get("summary")
+        psychology = prediction.get("psychology")
+        reasons = prediction.get("reasons") or []
+        if summary:
+            lines.append(f"- {summary}")
+        if psychology:
+            lines.append(f"- {psychology}")
+        lines.extend(f"- 理由：{item}" for item in reasons)
+
     warning = build_important_date_warning(report)
     if warning:
         lines.extend(["", "重要日期提醒", warning])
