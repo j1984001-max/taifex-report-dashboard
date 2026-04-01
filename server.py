@@ -1858,7 +1858,7 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
                 ),
             },
             {
-                "title": "選擇權特定法人分析",
+                "title": "買權特定法人分析",
                 "body": (
                     "；".join(
                         f"{item['label']}：買方前五大 {item['longTop5Qty']}、前十大 {item['longTop10Qty']}；"
@@ -1866,7 +1866,21 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
                         f"單日變動分別為 {item['longTop5Day']} / {item['longTop10Day']} / {item['shortTop5Day']} / {item['shortTop10Day']}，"
                         f"自 {item['cycleStartDate']} 起累積為 {item['longTop5Cycle']} / {item['longTop10Cycle']} / {item['shortTop5Cycle']} / {item['shortTop10Cycle']}"
                         for item in option_specific_rows
-                    ) if option_specific_rows else "本日缺少選擇權特定法人資料。"
+                        if "買權" in item["label"]
+                    ) if any("買權" in item["label"] for item in option_specific_rows) else "本日缺少買權特定法人資料。"
+                ),
+            },
+            {
+                "title": "賣權特定法人分析",
+                "body": (
+                    "；".join(
+                        f"{item['label']}：買方前五大 {item['longTop5Qty']}、前十大 {item['longTop10Qty']}；"
+                        f"賣方前五大 {item['shortTop5Qty']}、前十大 {item['shortTop10Qty']}；"
+                        f"單日變動分別為 {item['longTop5Day']} / {item['longTop10Day']} / {item['shortTop5Day']} / {item['shortTop10Day']}，"
+                        f"自 {item['cycleStartDate']} 起累積為 {item['longTop5Cycle']} / {item['longTop10Cycle']} / {item['shortTop5Cycle']} / {item['shortTop10Cycle']}"
+                        for item in option_specific_rows
+                        if "賣權" in item["label"]
+                    ) if any("賣權" in item["label"] for item in option_specific_rows) else "本日缺少賣權特定法人資料。"
                 ),
             },
             {
