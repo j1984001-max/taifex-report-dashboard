@@ -2809,16 +2809,16 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         cycle_label_date = weekly_cycle_start_date if row["contractType"] == "weekly" else monthly_cycle_start_date
         report["changeOverview"]["largeTraderSummary"].append(
             (
-                f"{row['contractLabel']}特定法人：多單前五大目前 {specific_value_text(row['longTop5SpecificQty'])} 口，單日 {format_signed(long5_day)}、"
-                f"自 {cycle_label_date} 起累積 {format_signed(long5_cycle)}；多單前十大目前 {specific_value_text(row['longTop10SpecificQty'])} 口，"
+                f"{row['contractLabel']}特定法人：買方前五大目前 {specific_value_text(row['longTop5SpecificQty'])} 口，單日 {format_signed(long5_day)}、"
+                f"自 {cycle_label_date} 起累積 {format_signed(long5_cycle)}；買方前十大目前 {specific_value_text(row['longTop10SpecificQty'])} 口，"
                 f"單日 {format_signed(long10_day)}、自 {cycle_label_date} 起累積 {format_signed(long10_cycle)}；"
-                f"空單前五大目前 {specific_value_text(row['shortTop5SpecificQty'])} 口，單日 {format_signed(short5_day)}、自 {cycle_label_date} 起累積 {format_signed(short5_cycle)}；"
-                f"空單前十大目前 {specific_value_text(row['shortTop10SpecificQty'])} 口，單日 {format_signed(short10_day)}、自 {cycle_label_date} 起累積 {format_signed(short10_cycle)}。"
+                f"賣方前五大目前 {specific_value_text(row['shortTop5SpecificQty'])} 口，單日 {format_signed(short5_day)}、自 {cycle_label_date} 起累積 {format_signed(short5_cycle)}；"
+                f"賣方前十大目前 {specific_value_text(row['shortTop10SpecificQty'])} 口，單日 {format_signed(short10_day)}、自 {cycle_label_date} 起累積 {format_signed(short10_cycle)}。"
             )
         )
         report["changeOverview"]["largeTraderCards"].append(
             {
-                "label": f"{row['contractLabel']}多單特定法人",
+                "label": f"{row['contractLabel']}買方特定法人",
                 "top5Qty": specific_value_text(row["longTop5SpecificQty"]),
                 "top5Day": format_signed(long5_day),
                 "top5Cycle": format_signed(long5_cycle),
@@ -2830,7 +2830,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         )
         report["changeOverview"]["largeTraderCards"].append(
             {
-                "label": f"{row['contractLabel']}空單特定法人",
+                "label": f"{row['contractLabel']}賣方特定法人",
                 "top5Qty": specific_value_text(row["shortTop5SpecificQty"]),
                 "top5Day": format_signed(short5_day),
                 "top5Cycle": format_signed(short5_cycle),
@@ -2841,10 +2841,10 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
             }
         )
         large_highlights.append(
-            f"{row['contractLabel']}特定法人多單變動：前五大較前一營業日 {format_signed(long5_day)}、自 {cycle_label_date} 起累積 {format_signed(long5_cycle)}；前十大較前一營業日 {format_signed(long10_day)}、自 {cycle_label_date} 起累積 {format_signed(long10_cycle)}。"
+            f"{row['contractLabel']}特定法人買方變動：前五大較前一營業日 {format_signed(long5_day)}、自 {cycle_label_date} 起累積 {format_signed(long5_cycle)}；前十大較前一營業日 {format_signed(long10_day)}、自 {cycle_label_date} 起累積 {format_signed(long10_cycle)}。"
         )
         large_highlights.append(
-            f"{row['contractLabel']}特定法人空單變動：前五大較前一營業日 {format_signed(short5_day)}、自 {cycle_label_date} 起累積 {format_signed(short5_cycle)}；前十大較前一營業日 {format_signed(short10_day)}、自 {cycle_label_date} 起累積 {format_signed(short10_cycle)}。"
+            f"{row['contractLabel']}特定法人賣方變動：前五大較前一營業日 {format_signed(short5_day)}、自 {cycle_label_date} 起累積 {format_signed(short5_cycle)}；前十大較前一營業日 {format_signed(short10_day)}、自 {cycle_label_date} 起累積 {format_signed(short10_cycle)}。"
         )
 
     option_prev_map = {
@@ -2875,10 +2875,10 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                     0 if row["contractType"] == "weekly" else 1,
                 ),
                 "highlight": (
-                    f"{row['contractLabel']}{row['optionLabel']}特定法人：多單前五大 {specific_value_text(row['longTop5SpecificQty'])} 口，單日 {format_signed(long5_day)}、累積 {format_signed(long5_cycle)}；"
-                    f"多單前十大 {specific_value_text(row['longTop10SpecificQty'])} 口，單日 {format_signed(long10_day)}、累積 {format_signed(long10_cycle)}；"
-                    f"空單前五大 {specific_value_text(row['shortTop5SpecificQty'])} 口，單日 {format_signed(short5_day)}、累積 {format_signed(short5_cycle)}；"
-                    f"空單前十大 {specific_value_text(row['shortTop10SpecificQty'])} 口，單日 {format_signed(short10_day)}、累積 {format_signed(short10_cycle)}。"
+                    f"{row['contractLabel']}{row['optionLabel']}特定法人：買方前五大 {specific_value_text(row['longTop5SpecificQty'])} 口，單日 {format_signed(long5_day)}、累積 {format_signed(long5_cycle)}；"
+                    f"買方前十大 {specific_value_text(row['longTop10SpecificQty'])} 口，單日 {format_signed(long10_day)}、累積 {format_signed(long10_cycle)}；"
+                    f"賣方前五大 {specific_value_text(row['shortTop5SpecificQty'])} 口，單日 {format_signed(short5_day)}、累積 {format_signed(short5_cycle)}；"
+                    f"賣方前十大 {specific_value_text(row['shortTop10SpecificQty'])} 口，單日 {format_signed(short10_day)}、累積 {format_signed(short10_cycle)}。"
                 ),
                 "card": {
                     "label": f"{row['contractLabel']} {row['optionLabel']}特定法人",
