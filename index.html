@@ -676,11 +676,16 @@
         }
 
         function formatSummaryText(text) {
-            const escaped = escapeHtml(text);
-            return escaped.replace(/([+-]\d[\d,]*(?:\.\d+)?%?)/g, (match) => {
-                const klass = match.startsWith("+") ? "num-pos" : "num-neg";
-                return `<span class="${klass}">${match}</span>`;
-            });
+            const source = String(text ?? "");
+            const escaped = source.replaceAll("&", "&amp;");
+            return escaped
+                .replace(/<span class="(num-pos|num-neg)">([\s\S]*?)<\/span>/g, (_, klass, content) => {
+                    return `<span class="${klass}">${content}</span>`;
+                })
+                .replace(/([+-]\d[\d,]*(?:\.\d+)?%?)/g, (match) => {
+                    const klass = match.startsWith("+") ? "num-pos" : "num-neg";
+                    return `<span class="${klass}">${match}</span>`;
+                });
         }
 
         function renderMeta(section) {
