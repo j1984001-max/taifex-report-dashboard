@@ -40,6 +40,71 @@
             border-color: #334155;
             background: #0f172a;
         }
+        .entity-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .entity-row {
+            display: grid;
+            grid-template-columns: 92px 1fr;
+            gap: 10px;
+            align-items: center;
+        }
+        .entity-row-label {
+            font-size: 12px;
+            font-weight: 800;
+            color: #475569;
+        }
+        .dark .entity-row-label { color: #cbd5e1; }
+        .entity-track {
+            position: relative;
+            height: 30px;
+            border-radius: 999px;
+            background: #e2e8f0;
+            overflow: hidden;
+        }
+        .dark .entity-track {
+            background: #1e293b;
+        }
+        .entity-fill {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            border-radius: 999px;
+            opacity: 0.9;
+        }
+        .entity-fill.buy {
+            background: linear-gradient(90deg, #fb7185 0%, #ef4444 100%);
+        }
+        .entity-fill.sell {
+            background: linear-gradient(90deg, #34d399 0%, #16a34a 100%);
+        }
+        .entity-track-text {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            height: 100%;
+            padding: 0 12px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .dark .entity-track-text {
+            color: #e2e8f0;
+        }
+        .entity-qty {
+            font-weight: 900;
+        }
+        .entity-deltas {
+            text-align: right;
+            white-space: nowrap;
+        }
         .section-card { border: 1px solid #e2e8f0; }
         .dark .section-card { border-color: #1e293b; }
         .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
@@ -671,6 +736,38 @@
             return `增加 <span class="num-pos">${formatNumber(increase)}</span>、減少 <span class="num-neg">${formatNumber(decrease)}</span>`;
         }
 
+        function parseNumericText(text) {
+            if (text === null || text === undefined) return null;
+            const normalized = String(text).replaceAll(",", "").trim();
+            const num = Number(normalized);
+            return Number.isFinite(num) ? num : null;
+        }
+
+        function renderEntityChart(rows) {
+            const numericValues = rows.map((row) => parseNumericText(row.qty)).filter((value) => value !== null);
+            const maxValue = numericValues.length ? Math.max(...numericValues, 1) : 1;
+            return `
+                <div class="entity-chart">
+                    ${rows.map((row) => {
+                        const qty = parseNumericText(row.qty);
+                        const width = qty === null ? 0 : Math.max((qty / maxValue) * 100, qty > 0 ? 8 : 0);
+                        return `
+                            <div class="entity-row">
+                                <div class="entity-row-label">${escapeHtml(row.label)}</div>
+                                <div class="entity-track">
+                                    <div class="entity-fill ${escapeHtml(row.kind)}" style="width:${width}%"></div>
+                                    <div class="entity-track-text">
+                                        <span class="entity-qty">${escapeHtml(row.qty)}</span>
+                                        <span class="entity-deltas">單日 ${formatDeltaTextSplit(row.day)}<br>累積 ${formatDeltaTextSplit(row.cycle)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join("")}
+                </div>
+            `;
+        }
+
         function sourceLinks(sources) {
             return sources.map((url) => `<a class="text-sky-600 dark:text-sky-300 underline break-all" href="${url}" target="_blank" rel="noreferrer">${url}</a>`).join("<br>");
         }
@@ -745,11 +842,11 @@
             const largeTraderCards = (section.largeTraderCards || []).map((item) => `
                 <div class="overview-card">
                     <div class="font-black mb-2">${escapeHtml(item.label)}</div>
-                    <div class="text-sm leading-7">
-                        <div>前五大：目前 ${escapeHtml(item.top5Qty)}，增減 <span class="${signedTextClass(item.top5Day)}">${escapeHtml(item.top5Day)}</span>，累積 <span class="${signedTextClass(item.top5Cycle)}">${escapeHtml(item.top5Cycle)}</span></div>
-                        <div>前十大：目前 ${escapeHtml(item.top10Qty)}，增減 <span class="${signedTextClass(item.top10Day)}">${escapeHtml(item.top10Day)}</span>，累積 <span class="${signedTextClass(item.top10Cycle)}">${escapeHtml(item.top10Cycle)}</span></div>
-                        <div class="text-slate-500 dark:text-slate-400">累積基準：${escapeHtml(item.cycleStartDate)}</div>
-                    </div>
+                    ${renderEntityChart([
+                        { label: "前五大", qty: item.top5Qty, day: item.top5Day, cycle: item.top5Cycle, kind: item.sideKind || "buy" },
+                        { label: "前十大", qty: item.top10Qty, day: item.top10Day, cycle: item.top10Cycle, kind: item.sideKind || "buy" },
+                    ])}
+                    <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">累積基準：${escapeHtml(item.cycleStartDate)}</div>
                 </div>
             `).join("");
             const optionCards = (section.optionItems || []).map((item) => `
@@ -767,13 +864,13 @@
             const optionSpecificCards = (section.optionSpecificCards || []).map((item) => `
                 <div class="overview-card">
                     <div class="font-black mb-2">${escapeHtml(item.label)}</div>
-                    <div class="text-sm leading-7">
-                        <div>買方前五大：${escapeHtml(item.longTop5Qty)}，增減 ${formatDeltaTextSplit(item.longTop5Day)}，累積 ${formatDeltaTextSplit(item.longTop5Cycle)}</div>
-                        <div>買方前十大：${escapeHtml(item.longTop10Qty)}，增減 ${formatDeltaTextSplit(item.longTop10Day)}，累積 ${formatDeltaTextSplit(item.longTop10Cycle)}</div>
-                        <div>賣方前五大：${escapeHtml(item.shortTop5Qty)}，增減 ${formatDeltaTextSplit(item.shortTop5Day)}，累積 ${formatDeltaTextSplit(item.shortTop5Cycle)}</div>
-                        <div>賣方前十大：${escapeHtml(item.shortTop10Qty)}，增減 ${formatDeltaTextSplit(item.shortTop10Day)}，累積 ${formatDeltaTextSplit(item.shortTop10Cycle)}</div>
-                        <div class="text-slate-500 dark:text-slate-400">備註：買方視作多單、賣方視作空單；累積基準：${escapeHtml(item.cycleStartDate)}</div>
-                    </div>
+                    ${renderEntityChart([
+                        { label: "買方前五大", qty: item.longTop5Qty, day: item.longTop5Day, cycle: item.longTop5Cycle, kind: "buy" },
+                        { label: "買方前十大", qty: item.longTop10Qty, day: item.longTop10Day, cycle: item.longTop10Cycle, kind: "buy" },
+                        { label: "賣方前五大", qty: item.shortTop5Qty, day: item.shortTop5Day, cycle: item.shortTop5Cycle, kind: "sell" },
+                        { label: "賣方前十大", qty: item.shortTop10Qty, day: item.shortTop10Day, cycle: item.shortTop10Cycle, kind: "sell" },
+                    ])}
+                    <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">備註：買方視作多單、賣方視作空單；累積基準：${escapeHtml(item.cycleStartDate)}</div>
                 </div>
             `).join("");
 

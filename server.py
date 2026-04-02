@@ -2862,6 +2862,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                 "top10Day": format_signed(long10_day),
                 "top10Cycle": format_signed(long10_cycle),
                 "cycleStartDate": cycle_label_date,
+                "sideKind": "buy",
             }
         )
         report["changeOverview"]["largeTraderCards"].append(
@@ -2874,6 +2875,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                 "top10Day": format_signed(short10_day),
                 "top10Cycle": format_signed(short10_cycle),
                 "cycleStartDate": cycle_label_date,
+                "sideKind": "sell",
             }
         )
         large_highlights.append(
