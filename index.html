@@ -653,6 +653,24 @@
             return Number(value) >= 0 ? "num-pos" : "num-neg";
         }
 
+        function formatDeltaSplit(value) {
+            if (value === null || value === undefined) return "缺資料";
+            const num = Number(value);
+            if (!Number.isFinite(num)) return escapeHtml(value);
+            const increase = num > 0 ? num : 0;
+            const decrease = num < 0 ? Math.abs(num) : 0;
+            return `增加 <span class="num-pos">${formatNumber(increase)}</span>、減少 <span class="num-neg">${formatNumber(decrease)}</span>`;
+        }
+
+        function formatDeltaTextSplit(text) {
+            if (text === null || text === undefined || text === "") return "缺資料";
+            const num = Number(String(text).replaceAll(",", ""));
+            if (!Number.isFinite(num)) return escapeHtml(text);
+            const increase = num > 0 ? num : 0;
+            const decrease = num < 0 ? Math.abs(num) : 0;
+            return `增加 <span class="num-pos">${formatNumber(increase)}</span>、減少 <span class="num-neg">${formatNumber(decrease)}</span>`;
+        }
+
         function sourceLinks(sources) {
             return sources.map((url) => `<a class="text-sky-600 dark:text-sky-300 underline break-all" href="${url}" target="_blank" rel="noreferrer">${url}</a>`).join("<br>");
         }
@@ -706,14 +724,14 @@
             const futuresCards = (section.items || []).map((item) => `
                 <div class="meta-pill">
                     <div class="font-black mb-2">${escapeHtml(item.product)}</div>
-                    <div>單日合計變動：<span class="${signedClass(item.dayTotal)}">${formatSigned(item.dayTotal)}</span></div>
-                    <div>自 ${escapeHtml(item.cycleStartDate)} 起累積變動：<span class="${signedClass(item.cycleTotal)}">${formatSigned(item.cycleTotal)}</span></div>
+                    <div>單日合計變動：${formatDeltaSplit(item.dayTotal)}</div>
+                    <div>自 ${escapeHtml(item.cycleStartDate)} 起累積變動：${formatDeltaSplit(item.cycleTotal)}</div>
                     <div class="mt-3 space-y-2">
                         ${(item.institutions || []).map((inst) => `
                             <div class="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900">
                                 <div class="font-bold mb-1">${escapeHtml(inst.institution)}</div>
-                                <div>單日：多方 <span class="${signedClass(inst.dayLongChange)}">${formatSigned(inst.dayLongChange)}</span>、空方 <span class="${signedClass(inst.dayShortChange)}">${formatSigned(inst.dayShortChange)}</span>、淨額 <span class="${signedClass(inst.dayNetChange)}">${formatSigned(inst.dayNetChange)}</span></div>
-                                <div>累積：多方 <span class="${signedClass(inst.cycleLongChange)}">${formatSigned(inst.cycleLongChange)}</span>、空方 <span class="${signedClass(inst.cycleShortChange)}">${formatSigned(inst.cycleShortChange)}</span>、淨額 <span class="${signedClass(inst.cycleNetChange)}">${formatSigned(inst.cycleNetChange)}</span></div>
+                                <div>單日：多方 ${formatDeltaSplit(inst.dayLongChange)}、空方 ${formatDeltaSplit(inst.dayShortChange)}、淨額 ${formatDeltaSplit(inst.dayNetChange)}</div>
+                                <div>累積：多方 ${formatDeltaSplit(inst.cycleLongChange)}、空方 ${formatDeltaSplit(inst.cycleShortChange)}、淨額 ${formatDeltaSplit(inst.cycleNetChange)}</div>
                             </div>
                         `).join("")}
                     </div>
@@ -736,8 +754,8 @@
                         <div class="${signedClass(item.oiNetQty)}">${formatSigned(item.oiNetQty)}</div>
                     </div>
                     <div class="text-sm leading-7">
-                        <div>單日：多方 <span class="${signedClass(item.dayLongChange)}">${formatSigned(item.dayLongChange)}</span>、空方 <span class="${signedClass(item.dayShortChange)}">${formatSigned(item.dayShortChange)}</span>、淨額 <span class="${signedClass(item.dayNetChange)}">${formatSigned(item.dayNetChange)}</span></div>
-                        <div>累積：多方 <span class="${signedClass(item.cycleLongChange)}">${formatSigned(item.cycleLongChange)}</span>、空方 <span class="${signedClass(item.cycleShortChange)}">${formatSigned(item.cycleShortChange)}</span>、淨額 <span class="${signedClass(item.cycleNetChange)}">${formatSigned(item.cycleNetChange)}</span></div>
+                        <div>單日：多方 ${formatDeltaSplit(item.dayLongChange)}、空方 ${formatDeltaSplit(item.dayShortChange)}、淨額 ${formatDeltaSplit(item.dayNetChange)}</div>
+                        <div>累積：多方 ${formatDeltaSplit(item.cycleLongChange)}、空方 ${formatDeltaSplit(item.cycleShortChange)}、淨額 ${formatDeltaSplit(item.cycleNetChange)}</div>
                     </div>
                 </div>
             `).join("");
@@ -745,10 +763,10 @@
                 <div class="overview-card">
                     <div class="font-black mb-2">${escapeHtml(item.label)}</div>
                     <div class="text-sm leading-7">
-                        <div>買方前五大：${escapeHtml(item.longTop5Qty)}，增減 <span class="${signedTextClass(item.longTop5Day)}">${escapeHtml(item.longTop5Day)}</span>，累積 <span class="${signedTextClass(item.longTop5Cycle)}">${escapeHtml(item.longTop5Cycle)}</span></div>
-                        <div>買方前十大：${escapeHtml(item.longTop10Qty)}，增減 <span class="${signedTextClass(item.longTop10Day)}">${escapeHtml(item.longTop10Day)}</span>，累積 <span class="${signedTextClass(item.longTop10Cycle)}">${escapeHtml(item.longTop10Cycle)}</span></div>
-                        <div>賣方前五大：${escapeHtml(item.shortTop5Qty)}，增減 <span class="${signedTextClass(item.shortTop5Day)}">${escapeHtml(item.shortTop5Day)}</span>，累積 <span class="${signedTextClass(item.shortTop5Cycle)}">${escapeHtml(item.shortTop5Cycle)}</span></div>
-                        <div>賣方前十大：${escapeHtml(item.shortTop10Qty)}，增減 <span class="${signedTextClass(item.shortTop10Day)}">${escapeHtml(item.shortTop10Day)}</span>，累積 <span class="${signedTextClass(item.shortTop10Cycle)}">${escapeHtml(item.shortTop10Cycle)}</span></div>
+                        <div>買方前五大：${escapeHtml(item.longTop5Qty)}，增減 ${formatDeltaTextSplit(item.longTop5Day)}，累積 ${formatDeltaTextSplit(item.longTop5Cycle)}</div>
+                        <div>買方前十大：${escapeHtml(item.longTop10Qty)}，增減 ${formatDeltaTextSplit(item.longTop10Day)}，累積 ${formatDeltaTextSplit(item.longTop10Cycle)}</div>
+                        <div>賣方前五大：${escapeHtml(item.shortTop5Qty)}，增減 ${formatDeltaTextSplit(item.shortTop5Day)}，累積 ${formatDeltaTextSplit(item.shortTop5Cycle)}</div>
+                        <div>賣方前十大：${escapeHtml(item.shortTop10Qty)}，增減 ${formatDeltaTextSplit(item.shortTop10Day)}，累積 ${formatDeltaTextSplit(item.shortTop10Cycle)}</div>
                         <div class="text-slate-500 dark:text-slate-400">備註：買方視作多單、賣方視作空單；累積基準：${escapeHtml(item.cycleStartDate)}</div>
                     </div>
                 </div>
