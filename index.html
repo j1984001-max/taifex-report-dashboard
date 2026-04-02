@@ -723,8 +723,8 @@
                 <div class="overview-card">
                     <div class="font-black mb-2">${escapeHtml(item.label)}</div>
                     <div class="text-sm leading-7">
-                        <div>前五大：目前 ${escapeHtml(item.top5Qty)}，單日 <span class="${signedTextClass(item.top5Day)}">${escapeHtml(item.top5Day)}</span>，累積 <span class="${signedTextClass(item.top5Cycle)}">${escapeHtml(item.top5Cycle)}</span></div>
-                        <div>前十大：目前 ${escapeHtml(item.top10Qty)}，單日 <span class="${signedTextClass(item.top10Day)}">${escapeHtml(item.top10Day)}</span>，累積 <span class="${signedTextClass(item.top10Cycle)}">${escapeHtml(item.top10Cycle)}</span></div>
+                        <div>前五大：目前 ${escapeHtml(item.top5Qty)}，增減 <span class="${signedTextClass(item.top5Day)}">${escapeHtml(item.top5Day)}</span>，累積 <span class="${signedTextClass(item.top5Cycle)}">${escapeHtml(item.top5Cycle)}</span></div>
+                        <div>前十大：目前 ${escapeHtml(item.top10Qty)}，增減 <span class="${signedTextClass(item.top10Day)}">${escapeHtml(item.top10Day)}</span>，累積 <span class="${signedTextClass(item.top10Cycle)}">${escapeHtml(item.top10Cycle)}</span></div>
                         <div class="text-slate-500 dark:text-slate-400">累積基準：${escapeHtml(item.cycleStartDate)}</div>
                     </div>
                 </div>
@@ -745,10 +745,10 @@
                 <div class="overview-card">
                     <div class="font-black mb-2">${escapeHtml(item.label)}</div>
                     <div class="text-sm leading-7">
-                        <div>買方前五大：${escapeHtml(item.longTop5Qty)}，單日 <span class="${signedTextClass(item.longTop5Day)}">${escapeHtml(item.longTop5Day)}</span>，累積 <span class="${signedTextClass(item.longTop5Cycle)}">${escapeHtml(item.longTop5Cycle)}</span></div>
-                        <div>買方前十大：${escapeHtml(item.longTop10Qty)}，單日 <span class="${signedTextClass(item.longTop10Day)}">${escapeHtml(item.longTop10Day)}</span>，累積 <span class="${signedTextClass(item.longTop10Cycle)}">${escapeHtml(item.longTop10Cycle)}</span></div>
-                        <div>賣方前五大：${escapeHtml(item.shortTop5Qty)}，單日 <span class="${signedTextClass(item.shortTop5Day)}">${escapeHtml(item.shortTop5Day)}</span>，累積 <span class="${signedTextClass(item.shortTop5Cycle)}">${escapeHtml(item.shortTop5Cycle)}</span></div>
-                        <div>賣方前十大：${escapeHtml(item.shortTop10Qty)}，單日 <span class="${signedTextClass(item.shortTop10Day)}">${escapeHtml(item.shortTop10Day)}</span>，累積 <span class="${signedTextClass(item.shortTop10Cycle)}">${escapeHtml(item.shortTop10Cycle)}</span></div>
+                        <div>多單前五大：${escapeHtml(item.longTop5Qty)}，增減 <span class="${signedTextClass(item.longTop5Day)}">${escapeHtml(item.longTop5Day)}</span>，累積 <span class="${signedTextClass(item.longTop5Cycle)}">${escapeHtml(item.longTop5Cycle)}</span></div>
+                        <div>多單前十大：${escapeHtml(item.longTop10Qty)}，增減 <span class="${signedTextClass(item.longTop10Day)}">${escapeHtml(item.longTop10Day)}</span>，累積 <span class="${signedTextClass(item.longTop10Cycle)}">${escapeHtml(item.longTop10Cycle)}</span></div>
+                        <div>空單前五大：${escapeHtml(item.shortTop5Qty)}，增減 <span class="${signedTextClass(item.shortTop5Day)}">${escapeHtml(item.shortTop5Day)}</span>，累積 <span class="${signedTextClass(item.shortTop5Cycle)}">${escapeHtml(item.shortTop5Cycle)}</span></div>
+                        <div>空單前十大：${escapeHtml(item.shortTop10Qty)}，增減 <span class="${signedTextClass(item.shortTop10Day)}">${escapeHtml(item.shortTop10Day)}</span>，累積 <span class="${signedTextClass(item.shortTop10Cycle)}">${escapeHtml(item.shortTop10Cycle)}</span></div>
                         <div class="text-slate-500 dark:text-slate-400">累積基準：${escapeHtml(item.cycleStartDate)}</div>
                     </div>
                 </div>
