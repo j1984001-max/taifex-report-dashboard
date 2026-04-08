@@ -3058,10 +3058,12 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     for item in monthly_option_specific:
         card = item["card"]
         option_specific_overview.append(
-            f"{card['label']}買方：前五大 {card['longTop5Qty']} 口，單日 {card['longTop5Day']}；前十大 {card['longTop10Qty']} 口，單日 {card['longTop10Day']}。"
+            f"{card['label']}買方：前五大 {card['longTop5Qty']} 口，單日 {card['longTop5Day']}、累積 {card['longTop5Cycle']}；"
+            f"前十大 {card['longTop10Qty']} 口，單日 {card['longTop10Day']}、累積 {card['longTop10Cycle']}。"
         )
         option_specific_overview.append(
-            f"{card['label']}賣方：前五大 {card['shortTop5Qty']} 口，單日 {card['shortTop5Day']}；前十大 {card['shortTop10Qty']} 口，單日 {card['shortTop10Day']}。"
+            f"{card['label']}賣方：前五大 {card['shortTop5Qty']} 口，單日 {card['shortTop5Day']}、累積 {card['shortTop5Cycle']}；"
+            f"前十大 {card['shortTop10Qty']} 口，單日 {card['shortTop10Day']}、累積 {card['shortTop10Cycle']}。"
         )
     report["changeOverview"]["optionOverviewHighlights"] = report["tables"]["D"]["highlights"][:3] + option_specific_overview
 
