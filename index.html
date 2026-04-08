@@ -805,6 +805,13 @@
             return `${num >= 0 ? "+" : ""}${formatNumber(num)}`;
         }
 
+        function formatNullablePercent(value) {
+            if (value === null || value === undefined) return "缺資料";
+            const num = Number(value);
+            if (!Number.isFinite(num)) return escapeHtml(value);
+            return `${num.toFixed(1)}%`;
+        }
+
         function signedClass(value) {
             if (value === null || value === undefined) return "";
             return Number(value) >= 0 ? "num-pos" : "num-neg";
@@ -1287,15 +1294,71 @@
                 `;
             }).join("");
 
+            const specificRows = (section.specificRows || []).map((row) => `
+                <tr>
+                    <td>${escapeHtml(row.contractLabel)}</td>
+                    <td>${escapeHtml(row.optionLabel)}</td>
+                    <td>
+                        <div class="font-bold">${formatNumber(row.longTop5SpecificQty)}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">單日 <span class="${signedClass(row.longTop5SpecificDay)}">${formatSigned(row.longTop5SpecificDay)}</span> / 累積 <span class="${signedClass(row.longTop5SpecificCycle)}">${formatSigned(row.longTop5SpecificCycle)}</span></div>
+                    </td>
+                    <td>${formatNullablePercent(row.longTop5SpecificPct)}</td>
+                    <td>
+                        <div class="font-bold">${formatNumber(row.longTop10SpecificQty)}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">單日 <span class="${signedClass(row.longTop10SpecificDay)}">${formatSigned(row.longTop10SpecificDay)}</span> / 累積 <span class="${signedClass(row.longTop10SpecificCycle)}">${formatSigned(row.longTop10SpecificCycle)}</span></div>
+                    </td>
+                    <td>${formatNullablePercent(row.longTop10SpecificPct)}</td>
+                    <td>
+                        <div class="font-bold">${formatNumber(row.shortTop5SpecificQty)}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">單日 <span class="${signedClass(row.shortTop5SpecificDay)}">${formatSigned(row.shortTop5SpecificDay)}</span> / 累積 <span class="${signedClass(row.shortTop5SpecificCycle)}">${formatSigned(row.shortTop5SpecificCycle)}</span></div>
+                    </td>
+                    <td>${formatNullablePercent(row.shortTop5SpecificPct)}</td>
+                    <td>
+                        <div class="font-bold">${formatNumber(row.shortTop10SpecificQty)}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">單日 <span class="${signedClass(row.shortTop10SpecificDay)}">${formatSigned(row.shortTop10SpecificDay)}</span> / 累積 <span class="${signedClass(row.shortTop10SpecificCycle)}">${formatSigned(row.shortTop10SpecificCycle)}</span></div>
+                    </td>
+                    <td>${formatNullablePercent(row.shortTop10SpecificPct)}</td>
+                    <td>${formatNumber(row.marketOi)}</td>
+                </tr>
+            `).join("");
+
             return sectionShell(section.title, `
                 ${renderMeta(section)}
                 ${section.cycleBasis ? `
                     <div class="mb-4 text-sm leading-7">
                         <span class="font-black">累積基準日：</span>
-                        月契約 ${escapeHtml(section.cycleBasis.monthly || "缺資料")}
+                        週契約 ${escapeHtml(section.cycleBasis.weekly || "缺資料")} / 月契約 ${escapeHtml(section.cycleBasis.monthly || "缺資料")}
                     </div>
                 ` : ""}
                 <div class="space-y-4">${grouped}</div>
+                ${(section.specificRows || []).length ? `
+                    <div class="mt-6">
+                        <div class="mb-3">
+                            <h4 class="font-black text-base">選擇權特定法人詳細版</h4>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 leading-7">格式比照大額交易人選擇權頁面，直接看買方 / 賣方之中特定法人在前五大、前十大部位的口數、占比、單日與累積變動。前一筆：${escapeHtml(section.specificPreviousDate || "缺資料")}</p>
+                        </div>
+                        <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>契約</th>
+                                        <th>權別</th>
+                                        <th>買方前五特法</th>
+                                        <th>占比</th>
+                                        <th>買方前十特法</th>
+                                        <th>占比</th>
+                                        <th>賣方前五特法</th>
+                                        <th>占比</th>
+                                        <th>賣方前十特法</th>
+                                        <th>占比</th>
+                                        <th>全市場</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${specificRows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                ` : ""}
                 <div class="mt-5 text-sm leading-7">
                     <h4 class="font-black mb-2">表格解讀</h4>
                     <p>${escapeHtml(section.interpretation)}</p>

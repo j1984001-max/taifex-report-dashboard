@@ -2772,13 +2772,17 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                 "date": base_date,
                 "unit": "口、千元",
                 "cycleBasis": {
+                    "weekly": weekly_cycle_start_date,
                     "monthly": monthly_cycle_start_date,
                 },
                 "rows": option_contracts,
+                "specificRows": [],
+                "specificPreviousDate": large_option_previous_date,
                 "interpretation": "本表直接整理臺指選擇權法人分契約資料，除交易淨額與未平倉淨額外，也補上與前一營業日及結算後基準日相比的未平倉變動，用來看法人選擇權部位是否持續加碼或回補。",
                 "highlights": [
                     "此表為『區分各選擇權契約』，不是買權/賣權分計表。",
                     f"單日變動為當日未平倉淨額減前一營業日；結算後累積變動為當日未平倉淨額減 {monthly_cycle_start_date} 基準值。",
+                    "下方另補『特定法人』版本，直接用買方 / 賣方與前五大 / 前十大並列，方便對照大額交易人選擇權頁面。",
                     *option_delta_overview["highlights"],
                 ],
                 "sources": [f"{TAIFEX}/cht/3/callsAndPutsDate"],
@@ -2895,6 +2899,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     report["changeOverview"]["optionSpecificHighlights"] = []
     report["changeOverview"]["optionSpecificCards"] = []
     option_specific_entries: list[dict[str, Any]] = []
+    detailed_option_specific_rows: list[dict[str, Any]] = []
     for row in large_trader_rows:
         prev = previous_by_type.get(row["contractType"])
         cycle = cycle_by_type.get(row["contractType"])
@@ -3021,10 +3026,43 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                 },
             }
         )
+        detailed_option_specific_rows.append(
+            {
+                "contractType": row["contractType"],
+                "contractLabel": row["contractLabel"],
+                "optionSide": row["optionSide"],
+                "optionLabel": row["optionLabel"],
+                "expiry": row["expiry"],
+                "previousDate": large_option_previous_date,
+                "cycleStartDate": cycle_label_date,
+                "longTop5SpecificQty": row["longTop5SpecificQty"],
+                "longTop5SpecificPct": row["longTop5SpecificPct"],
+                "longTop5SpecificDay": long5_day,
+                "longTop5SpecificCycle": long5_cycle,
+                "longTop10SpecificQty": row["longTop10SpecificQty"],
+                "longTop10SpecificPct": row["longTop10SpecificPct"],
+                "longTop10SpecificDay": long10_day,
+                "longTop10SpecificCycle": long10_cycle,
+                "shortTop5SpecificQty": row["shortTop5SpecificQty"],
+                "shortTop5SpecificPct": row["shortTop5SpecificPct"],
+                "shortTop5SpecificDay": short5_day,
+                "shortTop5SpecificCycle": short5_cycle,
+                "shortTop10SpecificQty": row["shortTop10SpecificQty"],
+                "shortTop10SpecificPct": row["shortTop10SpecificPct"],
+                "shortTop10SpecificDay": short10_day,
+                "shortTop10SpecificCycle": short10_cycle,
+                "marketOi": row["marketOi"],
+            }
+        )
 
     option_specific_entries.sort(key=lambda item: item["order"])
+    detailed_option_specific_rows.sort(key=lambda row: (
+        0 if row["contractType"] == "monthly" else 1,
+        0 if row["optionSide"] == "call" else 1,
+    ))
     report["changeOverview"]["optionSpecificHighlights"] = [item["highlight"] for item in option_specific_entries]
     report["changeOverview"]["optionSpecificCards"] = [item["card"] for item in option_specific_entries]
+    report["tables"]["D"]["specificRows"] = detailed_option_specific_rows
     report["changeOverview"]["futuresOverviewHighlights"] = [
         item for item in report["changeOverview"]["highlights"] if item.startswith("臺股期貨：")
     ][:1]
