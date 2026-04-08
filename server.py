@@ -3028,10 +3028,28 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     report["changeOverview"]["futuresOverviewHighlights"] = [
         item for item in report["changeOverview"]["highlights"] if item.startswith("臺股期貨：")
     ][:1]
-    report["changeOverview"]["largeTraderOverviewHighlights"] = [
-        item for item in report["changeOverview"]["largeTraderSummary"]
-        if "月契約" in item or not item.startswith("週契約")
-    ][:2] or report["changeOverview"]["largeTraderSummary"][:2]
+    monthly_large_summary = next((row for row in large_trader_rows if row["contractType"] == "monthly"), None)
+    if monthly_large_summary:
+        monthly_prev = previous_by_type.get("monthly")
+        monthly_cycle = cycle_by_type.get("monthly")
+        long5_day = None if not monthly_prev or monthly_prev["longTop5SpecificQty"] is None else monthly_large_summary["longTop5SpecificQty"] - monthly_prev["longTop5SpecificQty"]
+        long10_day = None if not monthly_prev or monthly_prev["longTop10SpecificQty"] is None else monthly_large_summary["longTop10SpecificQty"] - monthly_prev["longTop10SpecificQty"]
+        short5_day = None if not monthly_prev or monthly_prev["shortTop5SpecificQty"] is None else monthly_large_summary["shortTop5SpecificQty"] - monthly_prev["shortTop5SpecificQty"]
+        short10_day = None if not monthly_prev or monthly_prev["shortTop10SpecificQty"] is None else monthly_large_summary["shortTop10SpecificQty"] - monthly_prev["shortTop10SpecificQty"]
+        long5_cycle = None if not monthly_cycle or monthly_cycle["longTop5SpecificQty"] is None else monthly_large_summary["longTop5SpecificQty"] - monthly_cycle["longTop5SpecificQty"]
+        long10_cycle = None if not monthly_cycle or monthly_cycle["longTop10SpecificQty"] is None else monthly_large_summary["longTop10SpecificQty"] - monthly_cycle["longTop10SpecificQty"]
+        short5_cycle = None if not monthly_cycle or monthly_cycle["shortTop5SpecificQty"] is None else monthly_large_summary["shortTop5SpecificQty"] - monthly_cycle["shortTop5SpecificQty"]
+        short10_cycle = None if not monthly_cycle or monthly_cycle["shortTop10SpecificQty"] is None else monthly_large_summary["shortTop10SpecificQty"] - monthly_cycle["shortTop10SpecificQty"]
+        report["changeOverview"]["largeTraderOverviewHighlights"] = [
+            f"月契約特定法人買方：前五大 {specific_value_text(monthly_large_summary['longTop5SpecificQty'])} 口，單日 {format_signed(long5_day)}；前十大 {specific_value_text(monthly_large_summary['longTop10SpecificQty'])} 口，單日 {format_signed(long10_day)}。",
+            f"月契約特定法人賣方：前五大 {specific_value_text(monthly_large_summary['shortTop5SpecificQty'])} 口，單日 {format_signed(short5_day)}；前十大 {specific_value_text(monthly_large_summary['shortTop10SpecificQty'])} 口，單日 {format_signed(short10_day)}。",
+            f"月契約特定法人累積：買方前五大 {format_signed(long5_cycle)}、買方前十大 {format_signed(long10_cycle)}；賣方前五大 {format_signed(short5_cycle)}、賣方前十大 {format_signed(short10_cycle)}，基準日 {monthly_cycle_start_date}。",
+        ]
+    else:
+        report["changeOverview"]["largeTraderOverviewHighlights"] = [
+            item for item in report["changeOverview"]["largeTraderSummary"]
+            if "月契約" in item or not item.startswith("週契約")
+        ][:2] or report["changeOverview"]["largeTraderSummary"][:2]
     report["changeOverview"]["optionOverviewHighlights"] = report["tables"]["D"]["highlights"][:3]
 
     report["tables"]["C"]["highlights"] = large_highlights
