@@ -142,7 +142,8 @@ def capture_d_section_screenshots(report_date: str) -> dict[str, bytes]:
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1280, "height": 2000})
+        # Higher pixel density makes small table text readable in Telegram.
+        page = browser.new_page(viewport={"width": 1400, "height": 2200}, device_scale_factor=2)
         page.goto(url, wait_until="networkidle", timeout=120_000)
 
         d_section = page.locator("section.section-card").filter(has=page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版")).first
@@ -281,6 +282,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Send the daily TAIFEX snapshot, Telegram summary, and email.")
     parser.add_argument("--date", help="Target report date in YYYY/MM/DD. Defaults to latest available business day.")
     parser.add_argument("--chat-id", default=os.environ.get("TELEGRAM_CHAT_ID", DEFAULT_TELEGRAM_CHAT_ID), help="Telegram chat id.")
+    parser.add_argument("--quick-only", action="store_true", help="Only send the quick overview and D-section screenshots (no full text, no email).")
     parser.add_argument("--max-retries", type=int, default=int(os.environ.get("REPORT_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))), help="Max retries when the report is not ready.")
     parser.add_argument("--retry-delay", type=int, default=int(os.environ.get("REPORT_RETRY_DELAY_SECONDS", str(DEFAULT_RETRY_DELAY_SECONDS))), help="Retry delay in seconds when the report is not ready.")
     args = parser.parse_args()
@@ -335,6 +337,15 @@ def main() -> None:
                 data=shots["d_specific"],
             )
         )
+
+    if args.quick_only:
+        print(json.dumps({
+            "date": report["meta"]["date"],
+            "telegramMessages": len(results),
+            "telegramMessageIds": [item.get("result", {}).get("message_id") for item in results],
+            "quickOnly": True,
+        }, ensure_ascii=False))
+        return
 
     for message in full_messages:
         results.append(send_telegram_message(token, args.chat_id, message))
