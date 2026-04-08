@@ -3025,6 +3025,14 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     option_specific_entries.sort(key=lambda item: item["order"])
     report["changeOverview"]["optionSpecificHighlights"] = [item["highlight"] for item in option_specific_entries]
     report["changeOverview"]["optionSpecificCards"] = [item["card"] for item in option_specific_entries]
+    report["changeOverview"]["futuresOverviewHighlights"] = [
+        item for item in report["changeOverview"]["highlights"] if item.startswith("臺股期貨：")
+    ][:1]
+    report["changeOverview"]["largeTraderOverviewHighlights"] = [
+        item for item in report["changeOverview"]["largeTraderSummary"]
+        if "月契約" in item or not item.startswith("週契約")
+    ][:2] or report["changeOverview"]["largeTraderSummary"][:2]
+    report["changeOverview"]["optionOverviewHighlights"] = report["tables"]["D"]["highlights"][:3]
 
     report["tables"]["C"]["highlights"] = large_highlights
     report["analysis"] = build_analysis(report)

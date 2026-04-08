@@ -90,21 +90,20 @@ def build_quick_overview(report: dict[str, object]) -> str:
         lines.extend(["", "三個營業日內重要日期"])
         lines.extend(f"- {item}" for item in overview["urgentHighlights"])
 
-    if overview.get("highlights"):
+    futures_highlights = overview.get("futuresOverviewHighlights") or overview.get("highlights") or []
+    if futures_highlights:
         lines.extend(["", "期貨差異變動速覽"])
-        lines.extend(f"- {item}" for item in overview["highlights"])
+        lines.extend(f"- {item}" for item in futures_highlights)
 
-    if overview.get("largeTraderSummary"):
+    large_highlights = overview.get("largeTraderOverviewHighlights") or overview.get("largeTraderSummary") or []
+    if large_highlights:
         lines.extend(["", "大額交易人前五大 / 前十大"])
-        lines.extend(f"- {item}" for item in overview["largeTraderSummary"])
+        lines.extend(f"- {item}" for item in large_highlights)
 
-    if overview.get("optionHighlights"):
+    option_highlights = overview.get("optionOverviewHighlights") or overview.get("optionHighlights") or []
+    if option_highlights:
         lines.extend(["", "選擇權分契約速覽"])
-        lines.extend(f"- {item}" for item in overview["optionHighlights"])
-
-    if overview.get("optionSpecificHighlights"):
-        lines.extend(["", "選擇權週契約 / 月契約特定法人"])
-        lines.extend(f"- {item}" for item in overview["optionSpecificHighlights"])
+        lines.extend(f"- {item}" for item in option_highlights)
 
     prediction = overview.get("prediction") or {}
     if prediction:
