@@ -743,9 +743,17 @@
             return Number.isFinite(num) ? num : null;
         }
 
-        function renderEntityChart(rows) {
+        function formatSignedText(text) {
+            if (text === null || text === undefined || text === "") return "缺資料";
+            const num = parseNumericText(text);
+            if (num === null) return escapeHtml(text);
+            return `<span class="${num >= 0 ? "num-pos" : "num-neg"}">${num >= 0 ? "+" : ""}${formatNumber(num)}</span>`;
+        }
+
+        function renderEntityChart(rows, options = {}) {
             const numericValues = rows.map((row) => parseNumericText(row.qty)).filter((value) => value !== null);
             const maxValue = numericValues.length ? Math.max(...numericValues, 1) : 1;
+            const deltaFormatter = options.signed ? formatSignedText : formatDeltaTextSplit;
             return `
                 <div class="entity-chart">
                     ${rows.map((row) => {
@@ -758,7 +766,7 @@
                                     <div class="entity-fill ${escapeHtml(row.kind)}" style="width:${width}%"></div>
                                     <div class="entity-track-text">
                                         <span class="entity-qty">${escapeHtml(row.qty)}</span>
-                                        <span class="entity-deltas">單日 ${formatDeltaTextSplit(row.day)}<br>累積 ${formatDeltaTextSplit(row.cycle)}</span>
+                                        <span class="entity-deltas">單日 ${deltaFormatter(row.day)}<br>累積 ${deltaFormatter(row.cycle)}</span>
                                     </div>
                                 </div>
                             </div>
@@ -845,7 +853,7 @@
                     ${renderEntityChart([
                         { label: "前五大", qty: item.top5Qty, day: item.top5Day, cycle: item.top5Cycle, kind: item.sideKind || "buy" },
                         { label: "前十大", qty: item.top10Qty, day: item.top10Day, cycle: item.top10Cycle, kind: item.sideKind || "buy" },
-                    ])}
+                    ], { signed: true })}
                     <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">累積基準：${escapeHtml(item.cycleStartDate)}</div>
                 </div>
             `).join("");
@@ -869,7 +877,7 @@
                         { label: "買方前十大", qty: item.longTop10Qty, day: item.longTop10Day, cycle: item.longTop10Cycle, kind: "buy" },
                         { label: "賣方前五大", qty: item.shortTop5Qty, day: item.shortTop5Day, cycle: item.shortTop5Cycle, kind: "sell" },
                         { label: "賣方前十大", qty: item.shortTop10Qty, day: item.shortTop10Day, cycle: item.shortTop10Cycle, kind: "sell" },
-                    ])}
+                    ], { signed: true })}
                     <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">備註：買方視作多單、賣方視作空單；累積基準：${escapeHtml(item.cycleStartDate)}</div>
                 </div>
             `).join("");
