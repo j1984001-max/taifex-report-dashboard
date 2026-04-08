@@ -957,27 +957,92 @@ def build_futures_delta_overview(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def parse_option_contracts(table: list[list[str]]) -> list[dict[str, Any]]:
     rows = []
     for row in table[3:]:
-        if len(row) < 15 or row[1] != TARGET_OPTION_PRODUCT:
+        if len(row) < 16 or row[1] != TARGET_OPTION_PRODUCT or row[2] not in {"買權", "賣權"}:
             continue
         rows.append(
             {
                 "product": row[1],
-                "institution": row[2],
-                "tradeLongQty": to_int(row[3]),
-                "tradeLongAmount": to_int(row[4]),
-                "tradeShortQty": to_int(row[5]),
-                "tradeShortAmount": to_int(row[6]),
-                "tradeNetQty": to_int(row[7]),
-                "tradeNetAmount": to_int(row[8]),
-                "oiLongQty": to_int(row[9]),
-                "oiLongAmount": to_int(row[10]),
-                "oiShortQty": to_int(row[11]),
-                "oiShortAmount": to_int(row[12]),
-                "oiNetQty": to_int(row[13]),
-                "oiNetAmount": to_int(row[14]),
+                "optionLabel": row[2],
+                "optionSide": "call" if row[2] == "買權" else "put",
+                "institution": row[3],
+                "tradeLongQty": to_int(row[4]),
+                "tradeLongAmount": to_int(row[5]),
+                "tradeShortQty": to_int(row[6]),
+                "tradeShortAmount": to_int(row[7]),
+                "tradeNetQty": to_int(row[8]),
+                "tradeNetAmount": to_int(row[9]),
+                "oiLongQty": to_int(row[10]),
+                "oiLongAmount": to_int(row[11]),
+                "oiShortQty": to_int(row[12]),
+                "oiShortAmount": to_int(row[13]),
+                "oiNetQty": to_int(row[14]),
+                "oiNetAmount": to_int(row[15]),
             }
         )
     return rows
+
+
+def aggregate_option_rows_by_institution(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        item = grouped.setdefault(
+            row["institution"],
+            {
+                "product": row["product"],
+                "optionLabel": "合計",
+                "optionSide": "all",
+                "institution": row["institution"],
+                "tradeLongQty": 0,
+                "tradeLongAmount": 0,
+                "tradeShortQty": 0,
+                "tradeShortAmount": 0,
+                "tradeNetQty": 0,
+                "tradeNetAmount": 0,
+                "oiLongQty": 0,
+                "oiLongAmount": 0,
+                "oiShortQty": 0,
+                "oiShortAmount": 0,
+                "oiNetQty": 0,
+                "oiNetAmount": 0,
+                "previousDate": row.get("previousDate"),
+                "dayChangeOiLongQty": 0,
+                "dayChangeOiShortQty": 0,
+                "dayChangeOiNetQty": 0,
+                "cycleStartDate": row.get("cycleStartDate"),
+                "cycleChangeOiLongQty": 0,
+                "cycleChangeOiShortQty": 0,
+                "cycleChangeOiNetQty": 0,
+            },
+        )
+        for key in [
+            "tradeLongQty",
+            "tradeLongAmount",
+            "tradeShortQty",
+            "tradeShortAmount",
+            "tradeNetQty",
+            "tradeNetAmount",
+            "oiLongQty",
+            "oiLongAmount",
+            "oiShortQty",
+            "oiShortAmount",
+            "oiNetQty",
+            "oiNetAmount",
+        ]:
+            item[key] += row.get(key) or 0
+        for key in [
+            "dayChangeOiLongQty",
+            "dayChangeOiShortQty",
+            "dayChangeOiNetQty",
+            "cycleChangeOiLongQty",
+            "cycleChangeOiShortQty",
+            "cycleChangeOiNetQty",
+        ]:
+            value = row.get(key)
+            if value is None:
+                item[key] = None
+            elif item[key] is not None:
+                item[key] += value
+    return [grouped[key] for key in ["外資", "投信", "自營商"] if key in grouped]
 
 
 def fetch_option_history_rows(report_date: str, count: int = 5) -> list[dict[str, Any]]:
@@ -989,8 +1054,8 @@ def fetch_option_history_rows(report_date: str, count: int = 5) -> list[dict[str
         try:
             html = request_html(
                 TAIFEX,
-                "/cht/3/optContractsDateExcel",
-                {"queryType": "1", "queryDate": date_text, "commodityId": ""},
+                "/cht/3/callsAndPutsDate",
+                {"queryType": "1", "queryDate": date_text, "commodityId": "TXO"},
             )
             table = find_table(parse_tables(html), "商品 名稱")
             rows = parse_option_contracts(table)
@@ -1006,8 +1071,8 @@ def fetch_option_history_rows(report_date: str, count: int = 5) -> list[dict[str
 def fetch_option_rows_for_date(report_date: str) -> list[dict[str, Any]]:
     html = request_html(
         TAIFEX,
-        "/cht/3/optContractsDateExcel",
-        {"queryType": "1", "queryDate": report_date, "commodityId": ""},
+        "/cht/3/callsAndPutsDate",
+        {"queryType": "1", "queryDate": report_date, "commodityId": "TXO"},
     )
     table = find_table(parse_tables(html), "商品 名稱")
     return parse_option_contracts(table)
@@ -1020,19 +1085,19 @@ def enrich_option_with_history(
     cycle_start_date: str,
 ) -> list[dict[str, Any]]:
     previous_map = {
-        row["institution"]: row
+        (row["institution"], row.get("optionSide")): row
         for row in (history[0]["rows"] if history else [])
     }
     cycle_start_map = {
-        row["institution"]: row
+        (row["institution"], row.get("optionSide")): row
         for row in cycle_start_rows
     }
     previous_date = history[0]["date"] if history else None
 
     enriched = []
     for row in current_rows:
-        prev = previous_map.get(row["institution"])
-        cycle = cycle_start_map.get(row["institution"])
+        prev = previous_map.get((row["institution"], row.get("optionSide")))
+        cycle = cycle_start_map.get((row["institution"], row.get("optionSide")))
         prev_oi_long = prev["oiLongQty"] if prev else None
         prev_oi_short = prev["oiShortQty"] if prev else None
         prev_oi_net = prev["oiNetQty"] if prev else None
@@ -1064,8 +1129,9 @@ def enrich_option_with_history(
 def build_option_delta_overview(rows: list[dict[str, Any]]) -> dict[str, Any]:
     highlights = []
     for row in rows:
+        label = f"{row['optionLabel']}{row['institution']}"
         highlights.append(
-            f"{row['institution']}：選擇權未平倉淨額 {format_signed(row['oiNetQty'])} 口，較前一營業日 {format_increase_decrease(row['dayChangeOiNetQty'])} 口，自 {row['cycleStartDate']} 起累積 {format_increase_decrease(row['cycleChangeOiNetQty'])} 口；"
+            f"{label}：選擇權未平倉淨額 {format_signed(row['oiNetQty'])} 口，較前一營業日 {format_increase_decrease(row['dayChangeOiNetQty'])} 口，自 {row['cycleStartDate']} 起累積 {format_increase_decrease(row['cycleChangeOiNetQty'])} 口；"
             f"買方單日 {format_increase_decrease(row['dayChangeOiLongQty'])} / 累積 {format_increase_decrease(row['cycleChangeOiLongQty'])}；"
             f"賣方單日 {format_increase_decrease(row['dayChangeOiShortQty'])} / 累積 {format_increase_decrease(row['cycleChangeOiShortQty'])}。"
         )
@@ -1073,7 +1139,7 @@ def build_option_delta_overview(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "cycleStartDate": rows[0]["cycleStartDate"] if rows else "",
         "items": [
             {
-                "institution": row["institution"],
+                "institution": f"{row['optionLabel']} {row['institution']}",
                 "oiNetQty": row["oiNetQty"],
                 "dayLongChange": row["dayChangeOiLongQty"],
                 "dayShortChange": row["dayChangeOiShortQty"],
@@ -1093,7 +1159,7 @@ def build_total_summary(
     option_contracts: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     futures_map = {row["institution"]: row for row in futures_contracts}
-    options_map = {row["institution"]: row for row in option_contracts}
+    options_map = {row["institution"]: row for row in aggregate_option_rows_by_institution(option_contracts)}
     summary = []
     for institution in ["外資", "投信", "自營商"]:
         futures_row = futures_map.get(institution)
@@ -1875,9 +1941,10 @@ def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
     mtx_foreign = next(row for row in report["tables"]["B"]["rows"] if row["product"] == "小型臺指期貨" and row["institution"] == "外資")
     tmf_foreign = next(row for row in report["tables"]["B"]["rows"] if row["product"] == "微型臺指期貨" and row["institution"] == "外資")
     option_rows = report["tables"]["D"]["rows"]
-    option_foreign = next(row for row in option_rows if row["institution"] == "外資")
-    option_dealer = next(row for row in option_rows if row["institution"] == "自營商")
-    option_investment = next(row for row in option_rows if row["institution"] == "投信")
+    option_agg_rows = aggregate_option_rows_by_institution(option_rows)
+    option_foreign = next(row for row in option_agg_rows if row["institution"] == "外資")
+    option_dealer = next(row for row in option_agg_rows if row["institution"] == "自營商")
+    option_investment = next(row for row in option_agg_rows if row["institution"] == "投信")
     large_rows = report["tables"]["C"]["rows"]
     large = next((row for row in large_rows if row.get("contractType") == "monthly"), large_rows[0])
     large_weekly = next((row for row in large_rows if row.get("contractType") == "weekly"), None)
@@ -2057,7 +2124,7 @@ def build_overview_prediction(report: dict[str, Any]) -> dict[str, Any]:
     summary_rows = report["tables"]["A"]["rows"]
     foreign = next(row for row in summary_rows if row["institution"] == "外資")
     tx_foreign = next(row for row in report["tables"]["B"]["rows"] if row["product"] == "臺股期貨" and row["institution"] == "外資")
-    option_foreign = next(row for row in report["tables"]["D"]["rows"] if row["institution"] == "外資")
+    option_foreign = next(row for row in aggregate_option_rows_by_institution(report["tables"]["D"]["rows"]) if row["institution"] == "外資")
     monthly_large = next((row for row in report["tables"]["C"]["rows"] if row.get("contractType") == "monthly"), None)
     levels = report["tables"]["E"]
     primary = levels["charts"][0]
@@ -2509,8 +2576,8 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     )
     options_html = request_html(
         TAIFEX,
-        "/cht/3/optContractsDateExcel",
-        {"queryType": "1", "queryDate": report_date, "commodityId": ""} if report_date else None,
+        "/cht/3/callsAndPutsDate",
+        {"queryType": "1", "queryDate": report_date, "commodityId": "TXO"} if report_date else None,
     )
     tx_daily_html = request_html(
         TAIFEX,
@@ -2714,7 +2781,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                     f"單日變動為當日未平倉淨額減前一營業日；結算後累積變動為當日未平倉淨額減 {monthly_cycle_start_date} 基準值。",
                     *option_delta_overview["highlights"],
                 ],
-                "sources": [f"{TAIFEX}/cht/3/optContractsDateExcel"],
+                "sources": [f"{TAIFEX}/cht/3/callsAndPutsDate"],
             },
             "E": {
                 "title": "E. 選擇權支撐壓力詳細版",
@@ -2783,6 +2850,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     tf_foreign = next((row for row in tf_rows if row["institution"] == "外資"), None)
     option_long = max(option_contracts, key=lambda row: row["oiNetQty"])
     option_short = min(option_contracts, key=lambda row: row["oiNetQty"])
+    option_agg_contracts = aggregate_option_rows_by_institution(option_contracts)
     total_long_label = "淨多最高" if top_total_long["combinedOiNetQty"] > 0 else "相對最不偏空"
     option_long_label = "未平倉淨多最高" if option_long["oiNetQty"] > 0 else "未平倉相對最不偏空"
 
@@ -2806,9 +2874,9 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         f"全市場未沖銷部位數為 {format_number(large_trader['marketOi'])} 口，前五大買賣方占比差距 {large_trader['longTop5Pct'] - large_trader['shortTop5Pct']:+.1f} 個百分點，前十大差距 {large_trader['longTop10Pct'] - large_trader['shortTop10Pct']:+.1f} 個百分點。",
     ]
     report["tables"]["D"]["highlights"] = [
-        f"臺指選擇權{option_long_label}為 {option_long['institution']} {format_signed(option_long['oiNetQty'])} 口；未平倉淨空最高為 {option_short['institution']} {format_signed(option_short['oiNetQty'])} 口。",
-        f"外資臺指選擇權交易淨額 {format_signed(next(row['tradeNetQty'] for row in option_contracts if row['institution'] == '外資'))} 口，未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_contracts if row['institution'] == '外資'))} 口。",
-        f"自營商臺指選擇權未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_contracts if row['institution'] == '自營商'))} 口；投信臺指選擇權未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_contracts if row['institution'] == '投信'))} 口。",
+        f"臺指選擇權{option_long['optionLabel']}未平倉淨多最高為 {option_long['institution']} {format_signed(option_long['oiNetQty'])} 口；{option_short['optionLabel']}未平倉淨空最高為 {option_short['institution']} {format_signed(option_short['oiNetQty'])} 口。",
+        f"外資臺指選擇權合計交易淨額 {format_signed(next(row['tradeNetQty'] for row in option_agg_contracts if row['institution'] == '外資'))} 口，合計未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_agg_contracts if row['institution'] == '外資'))} 口。",
+        f"自營商臺指選擇權合計未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_agg_contracts if row['institution'] == '自營商'))} 口；投信合計未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_agg_contracts if row['institution'] == '投信'))} 口。",
     ]
     previous_by_type = {row["contractType"]: row for row in (large_previous_rows or [])}
     cycle_by_type = {
