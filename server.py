@@ -1351,6 +1351,19 @@ def fetch_previous_large_trader_business_day(report_date: str, monthly_code: str
     return None, None
 
 
+def fetch_previous_large_trader_option_business_day(report_date: str, monthly_code: str, limit: int = 10) -> tuple[str | None, list[dict[str, Any]] | None]:
+    current = datetime.strptime(report_date, "%Y/%m/%d") - timedelta(days=1)
+    checked = 0
+    while checked < limit:
+        date_text = current.strftime("%Y/%m/%d")
+        rows = fetch_large_trader_option_for_date(date_text, monthly_code)
+        if rows:
+            return date_text, rows
+        current -= timedelta(days=1)
+        checked += 1
+    return None, None
+
+
 def parse_oi_change(table: list[list[str]], fallback_date: str | None = None) -> dict[str, Any]:
     row = table[1]
     if any(cell == "無資料" for cell in row[:5]):
@@ -2551,11 +2564,11 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     cycle_start_rows = futures_contracts if monthly_cycle_start_date == base_date else fetch_futures_rows_for_date(monthly_cycle_start_date)
     option_cycle_start_rows = option_contracts if monthly_cycle_start_date == base_date else fetch_option_rows_for_date(monthly_cycle_start_date)
     large_previous_date, large_previous_rows = fetch_previous_large_trader_business_day(base_date, tx_reference["contract"])
+    large_option_previous_date, large_option_previous_rows = fetch_previous_large_trader_option_business_day(base_date, tx_reference["contract"])
     large_cycle_rows = {
         "weekly": large_trader_rows if weekly_cycle_start_date == base_date else fetch_large_trader_for_date(weekly_cycle_start_date, tx_reference["contract"]),
         "monthly": large_trader_rows if monthly_cycle_start_date == base_date else fetch_large_trader_for_date(monthly_cycle_start_date, tx_reference["contract"]),
     }
-    large_option_previous_rows = fetch_large_trader_option_for_date(previous_business_day(base_date), tx_reference["contract"]) or []
     large_option_cycle_rows = {
         "weekly": large_trader_option_rows if weekly_cycle_start_date == base_date else (fetch_large_trader_option_for_date(weekly_cycle_start_date, tx_reference["contract"]) or []),
         "monthly": large_trader_option_rows if monthly_cycle_start_date == base_date else (fetch_large_trader_option_for_date(monthly_cycle_start_date, tx_reference["contract"]) or []),
