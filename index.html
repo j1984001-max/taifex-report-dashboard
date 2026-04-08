@@ -105,6 +105,94 @@
             text-align: right;
             white-space: nowrap;
         }
+        .option-pair-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            overflow: hidden;
+            background: #fff;
+        }
+        .dark .option-pair-card {
+            border-color: #334155;
+            background: #020617;
+        }
+        .option-pair-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px 16px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .dark .option-pair-head {
+            background: #0f172a;
+            border-bottom-color: #334155;
+        }
+        .option-pair-grid {
+            display: grid;
+            grid-template-columns: 90px repeat(3, minmax(0, 1fr)) repeat(3, minmax(0, 1fr));
+            gap: 0;
+            min-width: 980px;
+        }
+        .option-pair-grid.header {
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 12px;
+            font-weight: 800;
+            color: #475569;
+        }
+        .dark .option-pair-grid.header {
+            background: #0f172a;
+            border-bottom-color: #334155;
+            color: #cbd5e1;
+        }
+        .option-pair-grid > div {
+            padding: 10px 12px;
+            border-right: 1px solid #e2e8f0;
+        }
+        .option-pair-grid > div:last-child {
+            border-right: 0;
+        }
+        .dark .option-pair-grid > div {
+            border-right-color: #334155;
+        }
+        .option-pair-row {
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .option-pair-row:last-child {
+            border-bottom: 0;
+        }
+        .dark .option-pair-row {
+            border-bottom-color: #334155;
+        }
+        .option-side-label {
+            font-weight: 900;
+        }
+        .option-side-label.call {
+            color: #b91c1c;
+        }
+        .option-side-label.put {
+            color: #15803d;
+        }
+        .dark .option-side-label.call {
+            color: #fca5a5;
+        }
+        .dark .option-side-label.put {
+            color: #86efac;
+        }
+        .metric-main {
+            font-weight: 900;
+        }
+        .metric-sub {
+            display: block;
+            margin-top: 4px;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #64748b;
+        }
+        .dark .metric-sub {
+            color: #94a3b8;
+        }
         .section-card { border: 1px solid #e2e8f0; }
         .dark .section-card { border-color: #1e293b; }
         .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
@@ -533,6 +621,10 @@
             .prediction-card ul {
                 font-size: 13px;
                 line-height: 1.7;
+            }
+            .option-pair-scroll {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
             }
         }
         @media print {
@@ -1171,6 +1263,77 @@
             `);
         }
 
+        function renderTableD(section) {
+            const grouped = ["外資", "自營商", "投信"].map((institution) => {
+                const rows = (section.rows || []).filter((row) => row.institution === institution);
+                if (!rows.length) return "";
+                const callRow = rows.find((row) => row.optionSide === "call");
+                const putRow = rows.find((row) => row.optionSide === "put");
+                const renderMetric = (qty, amount, delta = null) => `
+                    <span class="metric-main">${formatNumber(qty)}</span>
+                    <span class="metric-sub">金額 ${formatNumber(amount)}${delta !== null ? ` / 單日 <span class="${signedClass(delta)}">${formatSigned(delta)}</span>` : ""}</span>
+                `;
+                const renderRow = (row) => `
+                    <div class="option-pair-grid option-pair-row">
+                        <div class="option-side-label ${row.optionSide}">${escapeHtml(row.optionLabel)}</div>
+                        <div>${renderMetric(row.oiLongQty, row.oiLongAmount, row.dayChangeOiLongQty)}</div>
+                        <div>${renderMetric(row.oiShortQty, row.oiShortAmount, row.dayChangeOiShortQty)}</div>
+                        <div>
+                            <span class="metric-main ${signedClass(row.oiNetQty)}">${formatSigned(row.oiNetQty)}</span>
+                            <span class="metric-sub">前一日 ${formatSigned(row.previousOiNetQty)} / 累積 <span class="${signedClass(row.cycleChangeOiNetQty)}">${formatSigned(row.cycleChangeOiNetQty)}</span></span>
+                        </div>
+                        <div>${renderMetric(row.tradeLongQty, row.tradeLongAmount)}</div>
+                        <div>${renderMetric(row.tradeShortQty, row.tradeShortAmount)}</div>
+                        <div>
+                            <span class="metric-main ${signedClass(row.tradeNetQty)}">${formatSigned(row.tradeNetQty)}</span>
+                            <span class="metric-sub">差額金額 ${formatSigned(row.tradeNetAmount)}</span>
+                        </div>
+                    </div>
+                `;
+                return `
+                    <div class="option-pair-card mb-5">
+                        <div class="option-pair-head">
+                            <div class="font-black text-lg">${escapeHtml(institution)}</div>
+                            <div class="text-sm text-slate-500 dark:text-slate-400">前一筆：${escapeHtml((callRow || putRow)?.previousDate || "缺資料")} / 月契約累積基準：${escapeHtml(section.cycleBasis?.monthly || "缺資料")}</div>
+                        </div>
+                        <div class="option-pair-scroll">
+                            <div class="option-pair-grid header">
+                                <div>權別</div>
+                                <div>未平倉買方</div>
+                                <div>未平倉賣方</div>
+                                <div>未平倉差額</div>
+                                <div>交易買方</div>
+                                <div>交易賣方</div>
+                                <div>交易差額</div>
+                            </div>
+                            ${callRow ? renderRow(callRow) : ""}
+                            ${putRow ? renderRow(putRow) : ""}
+                        </div>
+                    </div>
+                `;
+            }).join("");
+
+            return sectionShell(section.title, `
+                ${renderMeta(section)}
+                ${section.cycleBasis ? `
+                    <div class="mb-4 text-sm leading-7">
+                        <span class="font-black">累積基準日：</span>
+                        月契約 ${escapeHtml(section.cycleBasis.monthly || "缺資料")}
+                    </div>
+                ` : ""}
+                <div class="space-y-4">${grouped}</div>
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">表格解讀</h4>
+                    <p>${escapeHtml(section.interpretation)}</p>
+                </div>
+                ${renderBullets("重點摘要", section.highlights)}
+                <div class="mt-5 text-sm leading-7">
+                    <h4 class="font-black mb-2">資料來源</h4>
+                    ${sourceLinks(section.sources)}
+                </div>
+            `);
+        }
+
         function renderTableE(section) {
             const sharedSupport = section.sharedSupport || { rangeLow: null, rangeHigh: null, clustered: false, items: [] };
             const sharedResistance = section.sharedResistance || { rangeLow: null, rangeHigh: null, clustered: false, items: [] };
@@ -1507,7 +1670,7 @@
                 renderTableA(tables.A),
                 renderContractTable(tables.B, false),
                 renderTableC(tables.C),
-                renderContractTable(tables.D, true),
+                renderTableD(tables.D),
                 renderTableE(tables.E),
                 renderTableF(tables.F),
                 renderTableG(tables.G),
