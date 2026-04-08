@@ -3050,7 +3050,20 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
             item for item in report["changeOverview"]["largeTraderSummary"]
             if "月契約" in item or not item.startswith("週契約")
         ][:2] or report["changeOverview"]["largeTraderSummary"][:2]
-    report["changeOverview"]["optionOverviewHighlights"] = report["tables"]["D"]["highlights"][:3]
+    monthly_option_specific = [
+        row for row in option_specific_entries
+        if row["card"]["label"].startswith("月契約")
+    ]
+    option_specific_overview = []
+    for item in monthly_option_specific:
+        card = item["card"]
+        option_specific_overview.append(
+            f"{card['label']}買方：前五大 {card['longTop5Qty']} 口，單日 {card['longTop5Day']}；前十大 {card['longTop10Qty']} 口，單日 {card['longTop10Day']}。"
+        )
+        option_specific_overview.append(
+            f"{card['label']}賣方：前五大 {card['shortTop5Qty']} 口，單日 {card['shortTop5Day']}；前十大 {card['shortTop10Qty']} 口，單日 {card['shortTop10Day']}。"
+        )
+    report["changeOverview"]["optionOverviewHighlights"] = report["tables"]["D"]["highlights"][:3] + option_specific_overview
 
     report["tables"]["C"]["highlights"] = large_highlights
     report["analysis"] = build_analysis(report)
