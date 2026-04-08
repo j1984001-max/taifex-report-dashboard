@@ -10,6 +10,7 @@ import subprocess
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -75,6 +76,92 @@ def send_telegram_message(bot_token: str, chat_id: str, text: str) -> dict[str, 
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _multipart_form_data(fields: dict[str, str], files: list[dict[str, object]]) -> tuple[bytes, str]:
+    boundary = f"----openclawcodex{uuid.uuid4().hex}"
+    lines: list[bytes] = []
+
+    def add_line(line: str) -> None:
+        lines.append(line.encode("utf-8"))
+
+    for name, value in fields.items():
+        add_line(f"--{boundary}\r\n")
+        add_line(f'Content-Disposition: form-data; name="{name}"\r\n\r\n')
+        add_line(f"{value}\r\n")
+
+    for f in files:
+        field_name = f["field_name"]
+        filename = f["filename"]
+        content_type = f.get("content_type", "application/octet-stream")
+        data = f["data"]
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError("file data must be bytes")
+        add_line(f"--{boundary}\r\n")
+        add_line(
+            f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
+        )
+        add_line(f"Content-Type: {content_type}\r\n\r\n")
+        lines.append(bytes(data))
+        add_line("\r\n")
+
+    add_line(f"--{boundary}--\r\n")
+    body = b"".join(lines)
+    return body, boundary
+
+
+def send_telegram_document(bot_token: str, chat_id: str, *, caption: str, filename: str, data: bytes) -> dict[str, object]:
+    body, boundary = _multipart_form_data(
+        {"chat_id": chat_id, "caption": caption},
+        [
+            {
+                "field_name": "document",
+                "filename": filename,
+                "content_type": "image/png",
+                "data": data,
+            }
+        ],
+    )
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{bot_token}/sendDocument",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def capture_d_section_screenshots(report_date: str) -> dict[str, bytes]:
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception:
+        return {}
+
+    url = f"{PUBLIC_BASE_URL}/?date={urllib.parse.quote(report_date)}"
+    screenshots: dict[str, bytes] = {}
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1280, "height": 2000})
+        page.goto(url, wait_until="networkidle", timeout=120_000)
+
+        d_section = page.locator("section.section-card").filter(has=page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版")).first
+        d_section.wait_for(timeout=60_000)
+
+        # 1) 三大法人買賣權未平倉（外資/自營商/投信卡片區）
+        cards_container = d_section.locator("div.space-y-4").first
+        if cards_container.count() > 0:
+            screenshots["d_institutions"] = cards_container.screenshot(type="png")
+
+        # 2) 特定法人表（「選擇權特定法人詳細版」區塊）
+        heading = d_section.locator("h4", has_text="選擇權特定法人詳細版").first
+        if heading.count() > 0:
+            block = heading.locator("xpath=ancestor::div[1]")
+            screenshots["d_specific"] = block.screenshot(type="png")
+
+        browser.close()
+
+    return screenshots
 
 
 def build_quick_overview(report: dict[str, object]) -> str:
@@ -225,6 +312,30 @@ def main() -> None:
 
     results = []
     results.append(send_telegram_message(token, args.chat_id, quick_overview))
+
+    # Attach D-section screenshots right after quick overview.
+    shots = capture_d_section_screenshots(report["meta"]["date"])
+    if shots.get("d_institutions"):
+        results.append(
+            send_telegram_document(
+                token,
+                args.chat_id,
+                caption=f"D. 三大法人買賣權未平倉（{report['meta']['date']}）",
+                filename=f"d-institutions-{report['meta']['date'].replace('/', '-')}.png",
+                data=shots["d_institutions"],
+            )
+        )
+    if shots.get("d_specific"):
+        results.append(
+            send_telegram_document(
+                token,
+                args.chat_id,
+                caption=f"D. 選擇權特定法人表（{report['meta']['date']}）",
+                filename=f"d-specific-{report['meta']['date'].replace('/', '-')}.png",
+                data=shots["d_specific"],
+            )
+        )
+
     for message in full_messages:
         results.append(send_telegram_message(token, args.chat_id, message))
 

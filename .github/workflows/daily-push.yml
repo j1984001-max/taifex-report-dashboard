@@ -23,7 +23,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install playwright==1.52.0
+          python3 -m playwright install chromium
 
       - name: Configure git author
         run: |
