@@ -41,7 +41,7 @@ jobs:
           GMAIL_TO: ${{ secrets.GMAIL_TO }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
-          REPORT_MAX_RETRIES: "2"
+          REPORT_MAX_RETRIES: "6"
           REPORT_RETRY_DELAY_SECONDS: "300"
         run: python3 send_daily_push.py
 

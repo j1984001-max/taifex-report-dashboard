@@ -263,18 +263,19 @@ def publish_snapshot(report_date: str) -> str:
     return (result.stdout or "").strip()
 
 
-def report_is_ready(report: dict[str, object]) -> tuple[bool, str]:
+def report_is_ready(report: dict[str, object], *, mode: str = "full") -> tuple[bool, str]:
     tables = report.get("tables", {})
     for key in ["A", "B", "C", "D"]:
         rows = tables.get(key, {}).get("rows", [])
         if not rows:
             return False, f"{key} 缺少 rows"
-    charts = tables.get("E", {}).get("charts", [])
-    if len(charts) < 3:
-        return False, "E 支撐壓力圖不足 3 張"
-    g_rows = tables.get("G", {}).get("rows", [])
-    if not g_rows:
-        return False, "G PCR 無資料"
+    if mode == "full":
+        charts = tables.get("E", {}).get("charts", [])
+        if len(charts) < 3:
+            return False, "E 支撐壓力圖不足 3 張"
+        g_rows = tables.get("G", {}).get("rows", [])
+        if not g_rows:
+            return False, "G PCR 無資料"
     return True, "ok"
 
 
@@ -294,16 +295,17 @@ def main() -> None:
     report = None
     for index in range(attempts):
         report, _ = cached_report(requested_date, report_url, force_refresh=True)
-        ready, last_reason = report_is_ready(report)
+        # Only block send when core tables are missing. E/G delays happen after 15:00.
+        ready, last_reason = report_is_ready(report, mode="minimal")
         if ready:
             break
         if index < attempts - 1:
             time.sleep(args.retry_delay)
     if report is None:
         raise RuntimeError("無法建立報表")
-    ready, last_reason = report_is_ready(report)
+    ready, last_reason = report_is_ready(report, mode="minimal")
     if not ready:
-        raise RuntimeError(f"報表資料仍未完整：{last_reason}")
+        raise RuntimeError(f"核心表格仍未完整：{last_reason}")
 
     pdf_data = build_report_pdf(report)
     save_snapshot(report["meta"]["date"], report, pdf_data)
@@ -347,6 +349,8 @@ def main() -> None:
         }, ensure_ascii=False))
         return
 
+    # Full report is optional; if not ready, still send the simplified full message.
+    full_ready, _ = report_is_ready(report, mode="full")
     for message in full_messages:
         results.append(send_telegram_message(token, args.chat_id, message))
 
