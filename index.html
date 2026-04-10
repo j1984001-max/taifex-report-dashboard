@@ -1132,7 +1132,10 @@
                     <td>${formatNumber(row.oiLongAmount)}</td>
                     <td>${formatNumber(row.oiShortQty)}</td>
                     <td>${formatNumber(row.oiShortAmount)}</td>
-                    <td class="${signedClass(row.oiNetQty)}">${formatSigned(row.oiNetQty)}</td>
+                    <td class="${signedClass(row.oiNetQty)}">
+                        <div class="font-bold">${formatSigned(row.oiNetQty)} <span class="${signedClass(row.dayChangeOiNetQty)}">(${formatSigned(row.dayChangeOiNetQty)})</span></div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">累積 <span class="${signedClass(row.cycleChangeOiNetQty)}">${formatSigned(row.cycleChangeOiNetQty)}</span></div>
+                    </td>
                     ${isOption ? `
                         <td>${formatNumber(row.previousOiNetQty)}</td>
                         <td class="${signedClass(row.dayChangeOiNetQty)}">${formatSigned(row.dayChangeOiNetQty)}</td>
@@ -1179,22 +1182,30 @@
         }
 
         function renderTableC(section) {
+            const formatDual = (total, specific) => {
+                if (total === null || total === undefined) return "缺資料";
+                const t = formatNumber(total);
+                if (specific === null || specific === undefined) return t;
+                return `${t} (${formatNumber(specific)})`;
+            };
+            const formatDualPct = (pct, specificPct) => {
+                if (pct === null || pct === undefined) return "缺資料";
+                const p = `${Number(pct).toFixed(1)}%`;
+                if (specificPct === null || specificPct === undefined) return p;
+                return `${p} (${Number(specificPct).toFixed(1)}%)`;
+            };
             const rows = section.rows.map((row) => `
                             <tr>
                                 <td>${escapeHtml(row.contractName)}</td>
                                 <td>${escapeHtml(row.contractLabel || row.expiry)}</td>
-                                <td>${formatNumber(row.longTop5Qty)}</td>
-                                <td>${formatNumber(row.longTop5SpecificQty)}</td>
-                                <td>${row.longTop5Pct.toFixed(1)}%</td>
-                                <td>${formatNumber(row.longTop10Qty)}</td>
-                                <td>${formatNumber(row.longTop10SpecificQty)}</td>
-                                <td>${row.longTop10Pct.toFixed(1)}%</td>
-                                <td>${formatNumber(row.shortTop5Qty)}</td>
-                                <td>${formatNumber(row.shortTop5SpecificQty)}</td>
-                                <td>${row.shortTop5Pct.toFixed(1)}%</td>
-                                <td>${formatNumber(row.shortTop10Qty)}</td>
-                                <td>${formatNumber(row.shortTop10SpecificQty)}</td>
-                                <td>${row.shortTop10Pct.toFixed(1)}%</td>
+                                <td>${formatDual(row.longTop5Qty, row.longTop5SpecificQty)}</td>
+                                <td>${formatDualPct(row.longTop5Pct, row.longTop5SpecificPct)}</td>
+                                <td>${formatDual(row.longTop10Qty, row.longTop10SpecificQty)}</td>
+                                <td>${formatDualPct(row.longTop10Pct, row.longTop10SpecificPct)}</td>
+                                <td>${formatDual(row.shortTop5Qty, row.shortTop5SpecificQty)}</td>
+                                <td>${formatDualPct(row.shortTop5Pct, row.shortTop5SpecificPct)}</td>
+                                <td>${formatDual(row.shortTop10Qty, row.shortTop10SpecificQty)}</td>
+                                <td>${formatDualPct(row.shortTop10Pct, row.shortTop10SpecificPct)}</td>
                                 <td>${formatNumber(row.marketOi)}</td>
                             </tr>
             `).join("");
@@ -1212,18 +1223,14 @@
                             <tr>
                                 <th>契約名稱</th>
                                 <th>到期月份</th>
-                                <th>前五大買方</th>
-                                <th>前五大買方特定法人</th>
-                                <th>前五大買方占比</th>
-                                <th>前十大買方</th>
-                                <th>前十大買方特定法人</th>
-                                <th>前十大買方占比</th>
-                                <th>前五大賣方</th>
-                                <th>前五大賣方特定法人</th>
-                                <th>前五大賣方占比</th>
-                                <th>前十大賣方</th>
-                                <th>前十大賣方特定法人</th>
-                                <th>前十大賣方占比</th>
+                                <th>前五大交易人合計(特定法人合計)</th>
+                                <th>百分比(特定法人%)</th>
+                                <th>前十大交易人合計(特定法人合計)</th>
+                                <th>百分比(特定法人%)</th>
+                                <th>前五大交易人合計(特定法人合計)</th>
+                                <th>百分比(特定法人%)</th>
+                                <th>前十大交易人合計(特定法人合計)</th>
+                                <th>百分比(特定法人%)</th>
                                 <th>全市場未沖銷</th>
                             </tr>
                         </thead>
