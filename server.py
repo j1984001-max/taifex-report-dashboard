@@ -2857,10 +2857,11 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     total_summary = build_total_summary(futures_contracts, option_contracts)
     tx_reference = parse_tx_reference(tx_daily_table)
 
-    tx_settlement_history = build_tx_settlement_history(effective_date, count=5)
-    large_trader_fut_history_rows = build_large_trader_fut_history_rows(effective_date, tx_reference["contract"], count=5)
-    large_trader_opt_history_rows = build_large_trader_opt_history_rows(effective_date, tx_reference["contract"], count=5)
-    institution_option_history_rows = build_institution_option_history_rows(effective_date, count=5)
+    # Keep history short to avoid slow API responses on free tiers; UI still matches WantGoo layout.
+    tx_settlement_history = build_tx_settlement_history(effective_date, count=3)
+    large_trader_fut_history_rows = build_large_trader_fut_history_rows(effective_date, tx_reference["contract"], count=3)
+    large_trader_opt_history_rows = build_large_trader_opt_history_rows(effective_date, tx_reference["contract"], count=3)
+    institution_option_history_rows = build_institution_option_history_rows(effective_date, count=3)
 
     large_trader_rows = fetch_large_trader_for_date(effective_date, tx_reference["contract"])
     if not large_trader_rows:
