@@ -131,7 +131,7 @@ def send_telegram_document(bot_token: str, chat_id: str, *, caption: str, filena
         return json.loads(response.read().decode("utf-8"))
 
 
-def capture_d_section_screenshots(report_date: str) -> dict[str, bytes]:
+def capture_report_screenshots(report_date: str) -> dict[str, bytes]:
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception:
@@ -160,8 +160,19 @@ def capture_d_section_screenshots(report_date: str) -> dict[str, bytes]:
         for _ in range(3):
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=120_000)
-                # The page renders sections after fetching /api/report, so wait for the D heading text.
+                # The page renders sections after fetching /api/report, so wait for C/D heading text.
+                page.locator("h2", has_text="C. 大額交易人未沖銷詳細版").first.wait_for(timeout=120_000)
                 page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版").first.wait_for(timeout=120_000)
+
+                c_section = page.locator("section.section-card").filter(
+                    has=page.locator("h2", has_text="C. 大額交易人未沖銷詳細版")
+                ).first
+                c_section.wait_for(timeout=60_000)
+                c_table = c_section.locator(".table-wrap").first
+                if c_table.count() > 0:
+                    screenshots["c_large"] = c_table.screenshot(type="png")
+                else:
+                    screenshots["c_large"] = c_section.screenshot(type="png")
 
                 d_section = page.locator("section.section-card").filter(
                     has=page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版")
@@ -316,7 +327,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Send the daily TAIFEX snapshot, Telegram summary, and email.")
     parser.add_argument("--date", help="Target report date in YYYY/MM/DD. Defaults to latest available business day.")
     parser.add_argument("--chat-id", default=os.environ.get("TELEGRAM_CHAT_ID", DEFAULT_TELEGRAM_CHAT_ID), help="Telegram chat id.")
-    parser.add_argument("--quick-only", action="store_true", help="Only send the quick overview and D-section screenshots (no full text, no email).")
+    parser.add_argument("--quick-only", action="store_true", help="Only send the quick overview and C/D screenshots (no full text, no email).")
     parser.add_argument("--max-retries", type=int, default=int(os.environ.get("REPORT_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))), help="Max retries when the report is not ready.")
     parser.add_argument("--retry-delay", type=int, default=int(os.environ.get("REPORT_RETRY_DELAY_SECONDS", str(DEFAULT_RETRY_DELAY_SECONDS))), help="Retry delay in seconds when the report is not ready.")
     args = parser.parse_args()
@@ -350,8 +361,18 @@ def main() -> None:
     results = []
     results.append(send_telegram_message(token, args.chat_id, quick_overview))
 
-    # Attach D-section screenshots right after quick overview.
-    shots = capture_d_section_screenshots(report["meta"]["date"])
+    # Attach C/D screenshots right after quick overview.
+    shots = capture_report_screenshots(report["meta"]["date"])
+    if shots.get("c_large"):
+        results.append(
+            send_telegram_document(
+                token,
+                args.chat_id,
+                caption=f"C. 期貨大額多空未平倉（{report['meta']['date']}）",
+                filename=f"c-large-{report['meta']['date'].replace('/', '-')}.png",
+                data=shots["c_large"],
+            )
+        )
     if shots.get("d_institutions"):
         results.append(
             send_telegram_document(
