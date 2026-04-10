@@ -1294,31 +1294,20 @@
                 `;
             }).join("");
 
+            const renderSpecificCell = (qty, day, cycle) => `
+                <div class="font-bold">${formatNumber(qty)} <span class="${signedClass(day)}">(${formatSigned(day)})</span></div>
+                <div class="text-xs text-slate-500 dark:text-slate-400">累積 <span class="${signedClass(cycle)}">${formatSigned(cycle)}</span></div>
+            `;
             const specificRows = (section.specificRows || []).map((row) => `
                 <tr>
-                    <td>${escapeHtml(row.contractLabel)}</td>
+                    <td>${escapeHtml(section.date || "缺資料")}</td>
+                    <td>${escapeHtml(row.expiry || row.contractLabel || "缺資料")}</td>
                     <td>${escapeHtml(row.optionLabel)}</td>
-                    <td>
-                        <div class="font-bold">${formatNumber(row.longTop5SpecificQty)}</div>
-                        <div class="text-xs text-slate-500 dark:text-slate-400">單日 <span class="${signedClass(row.longTop5SpecificDay)}">${formatSigned(row.longTop5SpecificDay)}</span> / 累積 <span class="${signedClass(row.longTop5SpecificCycle)}">${formatSigned(row.longTop5SpecificCycle)}</span></div>
-                    </td>
-                    <td>${formatNullablePercent(row.longTop5SpecificPct)}</td>
-                    <td>
-                        <div class="font-bold">${formatNumber(row.longTop10SpecificQty)}</div>
-                        <div class="text-xs text-slate-500 dark:text-slate-400">單日 <span class="${signedClass(row.longTop10SpecificDay)}">${formatSigned(row.longTop10SpecificDay)}</span> / 累積 <span class="${signedClass(row.longTop10SpecificCycle)}">${formatSigned(row.longTop10SpecificCycle)}</span></div>
-                    </td>
-                    <td>${formatNullablePercent(row.longTop10SpecificPct)}</td>
-                    <td>
-                        <div class="font-bold">${formatNumber(row.shortTop5SpecificQty)}</div>
-                        <div class="text-xs text-slate-500 dark:text-slate-400">單日 <span class="${signedClass(row.shortTop5SpecificDay)}">${formatSigned(row.shortTop5SpecificDay)}</span> / 累積 <span class="${signedClass(row.shortTop5SpecificCycle)}">${formatSigned(row.shortTop5SpecificCycle)}</span></div>
-                    </td>
-                    <td>${formatNullablePercent(row.shortTop5SpecificPct)}</td>
-                    <td>
-                        <div class="font-bold">${formatNumber(row.shortTop10SpecificQty)}</div>
-                        <div class="text-xs text-slate-500 dark:text-slate-400">單日 <span class="${signedClass(row.shortTop10SpecificDay)}">${formatSigned(row.shortTop10SpecificDay)}</span> / 累積 <span class="${signedClass(row.shortTop10SpecificCycle)}">${formatSigned(row.shortTop10SpecificCycle)}</span></div>
-                    </td>
-                    <td>${formatNullablePercent(row.shortTop10SpecificPct)}</td>
-                    <td>${formatNumber(row.marketOi)}</td>
+                    <td>${renderSpecificCell(row.longTop5SpecificQty, row.longTop5SpecificDay, row.longTop5SpecificCycle)}</td>
+                    <td>${renderSpecificCell(row.longTop10SpecificQty, row.longTop10SpecificDay, row.longTop10SpecificCycle)}</td>
+                    <td>${renderSpecificCell(row.shortTop5SpecificQty, row.shortTop5SpecificDay, row.shortTop5SpecificCycle)}</td>
+                    <td>${renderSpecificCell(row.shortTop10SpecificQty, row.shortTop10SpecificDay, row.shortTop10SpecificCycle)}</td>
+                    <td class="font-bold">${formatNumber(row.marketOi)}</td>
                 </tr>
             `).join("");
 
@@ -1335,22 +1324,19 @@
                     <div class="mt-6">
                         <div class="mb-3">
                             <h4 class="font-black text-base">選擇權特定法人詳細版</h4>
-                            <p class="text-sm text-slate-500 dark:text-slate-400 leading-7">格式比照大額交易人選擇權頁面，直接看買方 / 賣方之中特定法人在前五大、前十大部位的口數、占比、單日與累積變動。前一筆：${escapeHtml(section.specificPreviousDate || "缺資料")}</p>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 leading-7">顯示方式比照玩股網：口數後括號為單日變動；下行為累積變動（依週/月累積基準日）。前一筆：${escapeHtml(section.specificPreviousDate || "缺資料")}</p>
                         </div>
                         <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
                             <table>
                                 <thead>
                                     <tr>
+                                        <th>日期</th>
                                         <th>契約</th>
                                         <th>權別</th>
                                         <th>買方前五特法</th>
-                                        <th>占比</th>
                                         <th>買方前十特法</th>
-                                        <th>占比</th>
                                         <th>賣方前五特法</th>
-                                        <th>占比</th>
                                         <th>賣方前十特法</th>
-                                        <th>占比</th>
                                         <th>全市場</th>
                                     </tr>
                                 </thead>
