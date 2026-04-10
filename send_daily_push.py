@@ -140,26 +140,55 @@ def capture_d_section_screenshots(report_date: str) -> dict[str, bytes]:
     url = f"{PUBLIC_BASE_URL}/?date={urllib.parse.quote(report_date)}"
     screenshots: dict[str, bytes] = {}
 
+    # Warm up Render before launching a browser (avoid cold-start "Application loading").
+    try:
+        warm_req = urllib.request.Request(
+            f"{PUBLIC_BASE_URL}/api/report?date={urllib.parse.quote(report_date)}",
+            headers={"User-Agent": "taifex-daily-push/1.0"},
+        )
+        with urllib.request.urlopen(warm_req, timeout=30) as resp:
+            resp.read(1024)
+    except Exception:
+        pass
+
     with sync_playwright() as p:
         browser = p.chromium.launch()
         # Higher pixel density makes small table text readable in Telegram.
         page = browser.new_page(viewport={"width": 1400, "height": 2200}, device_scale_factor=2)
-        page.goto(url, wait_until="networkidle", timeout=120_000)
 
-        d_section = page.locator("section.section-card").filter(has=page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版")).first
-        d_section.wait_for(timeout=60_000)
+        last_error: Exception | None = None
+        for _ in range(3):
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=120_000)
+                # The page renders sections after fetching /api/report, so wait for the D heading text.
+                page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版").first.wait_for(timeout=120_000)
 
-        # 1) 三大法人買賣權未平倉（外資/自營商/投信卡片區）
-        cards_container = d_section.locator("div.space-y-4").first
-        if cards_container.count() > 0:
-            screenshots["d_institutions"] = cards_container.screenshot(type="png")
+                d_section = page.locator("section.section-card").filter(
+                    has=page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版")
+                ).first
+                d_section.wait_for(timeout=60_000)
 
-        # 2) 特定法人表（「選擇權特定法人詳細版」區塊）
-        heading = d_section.locator("h4", has_text="選擇權特定法人詳細版").first
-        if heading.count() > 0:
-            block = heading.locator("xpath=ancestor::div[1]")
-            screenshots["d_specific"] = block.screenshot(type="png")
+                # 1) 三大法人買賣權未平倉（外資/自營商/投信卡片區）
+                cards_container = d_section.locator("div.space-y-4").first
+                if cards_container.count() > 0:
+                    screenshots["d_institutions"] = cards_container.screenshot(type="png")
+                elif d_section.locator(".option-pair-card").count() > 0:
+                    # Fallback: concatenate cards by screenshotting the whole section if container shape changes.
+                    screenshots["d_institutions"] = d_section.screenshot(type="png")
 
+                # 2) 特定法人表（「選擇權特定法人詳細版」區塊）
+                heading = d_section.locator("h4", has_text="選擇權特定法人詳細版").first
+                if heading.count() > 0:
+                    block = heading.locator("xpath=ancestor::div[1]")
+                    screenshots["d_specific"] = block.screenshot(type="png")
+                break
+            except Exception as exc:
+                last_error = exc
+                try:
+                    page.wait_for_timeout(5000)
+                    page.reload(wait_until="domcontentloaded", timeout=120_000)
+                except Exception:
+                    pass
         browser.close()
 
     return screenshots

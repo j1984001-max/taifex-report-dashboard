@@ -26,7 +26,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install playwright==1.52.0
-          python3 -m playwright install chromium
+          python3 -m playwright install --with-deps chromium
 
       - name: Configure git author
         run: |
