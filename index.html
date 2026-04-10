@@ -17,6 +17,23 @@
         .dark tr:hover { background: #162235; }
         .num-pos { color: #dc2626; font-weight: 700; }
         .num-neg { color: #16a34a; font-weight: 700; }
+        .wantgoo-table th,
+        .wantgoo-table td { text-align: center; }
+        .wantgoo-table td:first-child,
+        .wantgoo-table th:first-child { text-align: center; }
+        .wantgoo-table td { padding: 10px 12px; }
+        .wg-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+        .wg-main { font-size: 15px; font-weight: 800; }
+        .wg-sub { font-size: 12px; line-height: 1.2; color: #64748b; }
+        .dark .wg-sub { color: #94a3b8; }
+        .wg-select {
+            border: 1px solid #e2e8f0;
+            border-radius: 9999px;
+            padding: 8px 14px;
+            background: #ffffff;
+            font-weight: 800;
+        }
+        .dark .wg-select { border-color: #334155; background: #0f172a; color: #e2e8f0; }
         .urgent-row { background: #fef2f2; }
         .urgent-badge {
             display: inline-flex;
@@ -1181,61 +1198,61 @@
             `);
         }
 
-        function renderTableC(section) {
-            const formatDual = (total, specific) => {
-                if (total === null || total === undefined) return "缺資料";
-                const t = formatNumber(total);
-                if (specific === null || specific === undefined) return t;
-                return `${t} (${formatNumber(specific)})`;
+        function renderTableC(section, marketHistory = {}) {
+            const renderCell = (value, delta) => {
+                const v = value === null || value === undefined ? "缺資料" : formatNumber(value);
+                const d = delta === null || delta === undefined ? "" : `<span class="${signedClass(delta)}">(${formatSigned(delta)})</span>`;
+                return `<div class="wg-cell"><div class="wg-main mono">${v}</div><div class="wg-sub mono">${d}</div></div>`;
             };
-            const formatDualPct = (pct, specificPct) => {
-                if (pct === null || pct === undefined) return "缺資料";
-                const p = `${Number(pct).toFixed(1)}%`;
-                if (specificPct === null || specificPct === undefined) return p;
-                return `${p} (${Number(specificPct).toFixed(1)}%)`;
+            const renderFutures = (dateText) => {
+                const market = marketHistory[dateText] || {};
+                if (market.settlement === null || market.settlement === undefined) return "缺資料";
+                const settle = formatNumber(market.settlement);
+                const chg = market.change === null || market.change === undefined
+                    ? ""
+                    : `<span class="${signedClass(market.change)}">${formatSigned(market.change)}${market.changePct !== null && market.changePct !== undefined ? ` (${Number(market.changePct).toFixed(2)}%)` : ""}</span>`;
+                return `<div class="wg-cell"><div class="wg-main mono">${settle}</div><div class="wg-sub mono">${chg}</div></div>`;
             };
-            const rows = section.rows.map((row) => `
-                            <tr>
-                                <td>${escapeHtml(row.contractName)}</td>
-                                <td>${escapeHtml(row.contractLabel || row.expiry)}</td>
-                                <td>${formatDual(row.longTop5Qty, row.longTop5SpecificQty)}</td>
-                                <td>${formatDualPct(row.longTop5Pct, row.longTop5SpecificPct)}</td>
-                                <td>${formatDual(row.longTop10Qty, row.longTop10SpecificQty)}</td>
-                                <td>${formatDualPct(row.longTop10Pct, row.longTop10SpecificPct)}</td>
-                                <td>${formatDual(row.shortTop5Qty, row.shortTop5SpecificQty)}</td>
-                                <td>${formatDualPct(row.shortTop5Pct, row.shortTop5SpecificPct)}</td>
-                                <td>${formatDual(row.shortTop10Qty, row.shortTop10SpecificQty)}</td>
-                                <td>${formatDualPct(row.shortTop10Pct, row.shortTop10SpecificPct)}</td>
-                                <td>${formatNumber(row.marketOi)}</td>
-                            </tr>
+            const rows = (section.historyRows || []).map((row) => `
+                <tr>
+                    <td class="mono">${escapeHtml(row.date)}</td>
+                    <td>${renderCell(row.longTop5Qty, row.longTop5Day)}</td>
+                    <td>${renderCell(row.shortTop5Qty, row.shortTop5Day)}</td>
+                    <td>${renderCell(row.longTop10Qty, row.longTop10Day)}</td>
+                    <td>${renderCell(row.shortTop10Qty, row.shortTop10Day)}</td>
+                    <td>${renderCell(row.longTop5SpecificQty, row.longTop5SpecificDay)}</td>
+                    <td>${renderCell(row.shortTop5SpecificQty, row.shortTop5SpecificDay)}</td>
+                    <td>${renderCell(row.longTop10SpecificQty, row.longTop10SpecificDay)}</td>
+                    <td>${renderCell(row.shortTop10SpecificQty, row.shortTop10SpecificDay)}</td>
+                    <td>${renderFutures(row.date)}</td>
+                    <td class="text-slate-400">缺資料</td>
+                    <td class="text-slate-400">缺資料</td>
+                </tr>
             `).join("");
             return sectionShell(section.title, `
                 ${renderMeta(section)}
-                ${section.cycleBasis ? `
-                    <div class="mb-4 text-sm leading-7">
-                        <span class="font-black">累積基準日：</span>
-                        週契約 ${escapeHtml(section.cycleBasis.weekly || "缺資料")} / 月契約 ${escapeHtml(section.cycleBasis.monthly || "缺資料")}
-                    </div>
-                ` : ""}
                 <div class="table-wrap">
-                    <table>
+                    <table class="wantgoo-table">
                         <thead>
                             <tr>
-                                <th>契約名稱</th>
-                                <th>到期月份</th>
-                                <th>多方前五大(特定法人)</th>
-                                <th>多方% (特定%)</th>
-                                <th>多方前十大(特定法人)</th>
-                                <th>多方% (特定%)</th>
-                                <th>空方前五大(特定法人)</th>
-                                <th>空方% (特定%)</th>
-                                <th>空方前十大(特定法人)</th>
-                                <th>空方% (特定%)</th>
-                                <th>全市場未沖銷</th>
+                                <th rowspan="2">日期</th>
+                                <th colspan="2">前五大</th>
+                                <th colspan="2">前十大</th>
+                                <th colspan="2">前五特法</th>
+                                <th colspan="2">前十特法</th>
+                                <th rowspan="2">期貨</th>
+                                <th rowspan="2">現貨</th>
+                                <th rowspan="2">價差</th>
+                            </tr>
+                            <tr>
+                                <th>多方</th><th>空方</th>
+                                <th>多方</th><th>空方</th>
+                                <th>多方</th><th>空方</th>
+                                <th>多方</th><th>空方</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${rows}
+                            ${rows || `<tr><td colspan="12" class="text-center text-slate-400">缺資料</td></tr>`}
                         </tbody>
                     </table>
                 </div>
@@ -1251,55 +1268,161 @@
             `);
         }
 
-        function renderTableD(section) {
-            const grouped = ["外資", "自營商", "投信"].map((institution) => {
-                const rows = (section.rows || []).filter((row) => row.institution === institution);
-                if (!rows.length) return "";
-                const callRow = rows.find((row) => row.optionSide === "call");
-                const putRow = rows.find((row) => row.optionSide === "put");
-                const renderMetric = (qty, amount, delta = null) => `
-                    <span class="metric-main">${formatNumber(qty)}</span>
-                    <span class="metric-sub">金額 ${formatNumber(amount)}${delta !== null ? ` / 單日 <span class="${signedClass(delta)}">${formatSigned(delta)}</span>` : ""}</span>
-                `;
-                const renderRow = (row) => `
-                    <div class="option-pair-grid option-pair-row">
-                        <div class="option-side-label ${row.optionSide}">${escapeHtml(row.optionLabel)}</div>
-                        <div>${renderMetric(row.oiLongQty, row.oiLongAmount, row.dayChangeOiLongQty)}</div>
-                        <div>${renderMetric(row.oiShortQty, row.oiShortAmount, row.dayChangeOiShortQty)}</div>
-                        <div>
-                            <span class="metric-main ${signedClass(row.oiNetQty)}">${formatSigned(row.oiNetQty)}</span>
-                            <span class="metric-sub">前一日 ${formatSigned(row.previousOiNetQty)} / 累積 <span class="${signedClass(row.cycleChangeOiNetQty)}">${formatSigned(row.cycleChangeOiNetQty)}</span></span>
-                        </div>
-                        <div>${renderMetric(row.tradeLongQty, row.tradeLongAmount)}</div>
-                        <div>${renderMetric(row.tradeShortQty, row.tradeShortAmount)}</div>
-                        <div>
-                            <span class="metric-main ${signedClass(row.tradeNetQty)}">${formatSigned(row.tradeNetQty)}</span>
-                            <span class="metric-sub">差額金額 ${formatSigned(row.tradeNetAmount)}</span>
-                        </div>
-                    </div>
-                `;
+        function renderTableD(section, marketHistory = {}) {
+            const renderMetric = (value, delta) => {
+                const v = value === null || value === undefined ? "缺資料" : formatNumber(value);
+                const d = delta === null || delta === undefined ? "" : `<span class="${signedClass(delta)}">(${formatSigned(delta)})</span>`;
+                return `<div class="wg-cell"><div class="wg-main mono">${v}</div><div class="wg-sub mono">${d}</div></div>`;
+            };
+            const renderFutures = (dateText) => {
+                const market = marketHistory[dateText] || {};
+                if (market.settlement === null || market.settlement === undefined) return "缺資料";
+                const settle = formatNumber(market.settlement);
+                const chg = market.change === null || market.change === undefined
+                    ? ""
+                    : `<span class="${signedClass(market.change)}">${formatSigned(market.change)}${market.changePct !== null && market.changePct !== undefined ? ` (${Number(market.changePct).toFixed(2)}%)` : ""}</span>`;
+                return `<div class="wg-cell"><div class="wg-main mono">${settle}</div><div class="wg-sub mono">${chg}</div></div>`;
+            };
+
+            const historyRows = section.institutionHistoryRows || [];
+            const institutions = ["外資", "自營商", "投信"];
+            const buildInstitutionPanel = (institution, isActive) => {
+                const rows = historyRows
+                    .filter((r) => r.institution === institution)
+                    .sort((a, b) => (a.date === b.date ? (a.optionSide === "call" ? -1 : 1) : b.date.localeCompare(a.date)));
+                const byDate = new Map();
+                for (const r of rows) {
+                    if (!byDate.has(r.date)) byDate.set(r.date, []);
+                    byDate.get(r.date).push(r);
+                }
+                const body = Array.from(byDate.entries()).map(([dateText, pair]) => {
+                    const callRow = pair.find((r) => r.optionSide === "call");
+                    const putRow = pair.find((r) => r.optionSide === "put");
+                    const renderOne = (r, isFirst) => {
+                        if (!r) return "";
+                        const label = r.optionSide === "call" ? "買權" : "賣權";
+                        return `
+                            <tr>
+                                ${isFirst ? `<td rowspan="2" class="mono">${escapeHtml(dateText)}</td>` : ""}
+                                <td>${label}</td>
+                                <td>${renderMetric(r.oiLongQty, r.oiLongQtyDay)}</td>
+                                <td>${renderMetric(r.oiLongAmount, r.oiLongAmountDay)}</td>
+                                <td>${renderMetric(r.oiShortQty, r.oiShortQtyDay)}</td>
+                                <td>${renderMetric(r.oiShortAmount, r.oiShortAmountDay)}</td>
+                                <td>${renderMetric(r.oiNetQty, r.oiNetQtyDay)}</td>
+                                <td>${renderMetric(r.oiNetAmount, r.oiNetAmountDay)}</td>
+                                ${isFirst ? `<td rowspan="2">${renderFutures(dateText)}</td>` : ""}
+                                ${isFirst ? `<td rowspan="2" class="text-slate-400">缺資料</td>` : ""}
+                                ${isFirst ? `<td rowspan="2" class="text-slate-400">缺資料</td>` : ""}
+                            </tr>
+                        `;
+                    };
+                    return `${renderOne(callRow, true)}${renderOne(putRow, false)}`;
+                }).join("");
+
                 return `
-                    <div class="option-pair-card mb-5">
-                        <div class="option-pair-head">
-                            <div class="font-black text-lg">${escapeHtml(institution)}</div>
-                            <div class="text-sm text-slate-500 dark:text-slate-400">前一筆：${escapeHtml((callRow || putRow)?.previousDate || "缺資料")} / 月契約累積基準：${escapeHtml(section.cycleBasis?.monthly || "缺資料")}</div>
-                        </div>
-                        <div class="option-pair-scroll">
-                            <div class="option-pair-grid header">
-                                <div>權別</div>
-                                <div>未平倉買方</div>
-                                <div>未平倉賣方</div>
-                                <div>未平倉差額</div>
-                                <div>交易買方</div>
-                                <div>交易賣方</div>
-                                <div>交易差額</div>
-                            </div>
-                            ${callRow ? renderRow(callRow) : ""}
-                            ${putRow ? renderRow(putRow) : ""}
+                    <div class="d-inst-panel ${isActive ? "" : "hidden"}" data-d-inst="${escapeHtml(institution)}">
+                        <div class="table-wrap">
+                            <table class="wantgoo-table">
+                                <thead>
+                                    <tr>
+                                        <th rowspan="2">日期</th>
+                                        <th rowspan="2">權別</th>
+                                        <th colspan="2">買方</th>
+                                        <th colspan="2">賣方</th>
+                                        <th colspan="2">買賣差額</th>
+                                        <th rowspan="2">期貨</th>
+                                        <th rowspan="2">現貨</th>
+                                        <th rowspan="2">價差</th>
+                                    </tr>
+                                    <tr>
+                                        <th>口數</th><th>契約金額</th>
+                                        <th>口數</th><th>契約金額</th>
+                                        <th>口數</th><th>契約金額</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${body || `<tr><td colspan="11" class="text-center text-slate-400">缺資料</td></tr>`}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 `;
-            }).join("");
+            };
+
+            const largeRows = section.largeTraderOptionHistoryRows || [];
+            const buildLargeTraderPanel = (contractType, isActive) => {
+                const rows = largeRows
+                    .filter((r) => r.contractType === contractType)
+                    .sort((a, b) => (a.date === b.date ? (a.optionSide === "call" ? -1 : 1) : b.date.localeCompare(a.date)));
+                const byDate = new Map();
+                for (const r of rows) {
+                    if (!byDate.has(r.date)) byDate.set(r.date, []);
+                    byDate.get(r.date).push(r);
+                }
+                const contract = contractType === "weekly" ? "週契約" : (section.monthlyContract || "缺資料");
+                const body = Array.from(byDate.entries()).map(([dateText, pair]) => {
+                    const callRow = pair.find((r) => r.optionSide === "call");
+                    const putRow = pair.find((r) => r.optionSide === "put");
+                    const renderOne = (r, isFirst) => {
+                        if (!r) return "";
+                        const label = r.optionSide === "call" ? "買權" : "賣權";
+                        return `
+                            <tr>
+                                ${isFirst ? `<td rowspan="2" class="mono">${escapeHtml(dateText)}</td>` : ""}
+                                ${isFirst ? `<td rowspan="2" class="mono">${escapeHtml(contract)}</td>` : ""}
+                                <td>${label}</td>
+                                <td>${renderMetric(r.longTop5Qty, r.longTop5Day)}</td>
+                                <td>${renderMetric(r.shortTop5Qty, r.shortTop5Day)}</td>
+                                <td>${renderMetric(r.longTop10Qty, r.longTop10Day)}</td>
+                                <td>${renderMetric(r.shortTop10Qty, r.shortTop10Day)}</td>
+                                <td>${renderMetric(r.longTop5SpecificQty, r.longTop5SpecificDay)}</td>
+                                <td>${renderMetric(r.shortTop5SpecificQty, r.shortTop5SpecificDay)}</td>
+                                <td>${renderMetric(r.longTop10SpecificQty, r.longTop10SpecificDay)}</td>
+                                <td>${renderMetric(r.shortTop10SpecificQty, r.shortTop10SpecificDay)}</td>
+                                <td class="font-bold mono">${formatNumber(r.marketOi)}</td>
+                                ${isFirst ? `<td rowspan="2">${renderFutures(dateText)}</td>` : ""}
+                                ${isFirst ? `<td rowspan="2" class="text-slate-400">缺資料</td>` : ""}
+                                ${isFirst ? `<td rowspan="2" class="text-slate-400">缺資料</td>` : ""}
+                            </tr>
+                        `;
+                    };
+                    return `${renderOne(callRow, true)}${renderOne(putRow, false)}`;
+                }).join("");
+
+                return `
+                    <div class="d-large-panel ${isActive ? "" : "hidden"}" data-d-large="${escapeHtml(contractType)}">
+                        <div class="table-wrap">
+                            <table class="wantgoo-table">
+                                <thead>
+                                    <tr>
+                                        <th rowspan="2">日期</th>
+                                        <th rowspan="2">契約</th>
+                                        <th rowspan="2">權別</th>
+                                        <th colspan="2">前五大</th>
+                                        <th colspan="2">前十大</th>
+                                        <th colspan="2">前五特法</th>
+                                        <th colspan="2">前十特法</th>
+                                        <th rowspan="2">全市場淨口數</th>
+                                        <th rowspan="2">期貨</th>
+                                        <th rowspan="2">現貨</th>
+                                        <th rowspan="2">價差</th>
+                                    </tr>
+                                    <tr>
+                                        <th>買方</th><th>賣方</th>
+                                        <th>買方</th><th>賣方</th>
+                                        <th>買方</th><th>賣方</th>
+                                        <th>買方</th><th>賣方</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${body || `<tr><td colspan="15" class="text-center text-slate-400">缺資料</td></tr>`}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            };
 
             const renderSpecificCell = (qty, day, cycle) => `
                 <div class="font-bold">${formatNumber(qty)} <span class="${signedClass(day)}">(${formatSigned(day)})</span></div>
@@ -1320,13 +1443,28 @@
 
             return sectionShell(section.title, `
                 ${renderMeta(section)}
-                ${section.cycleBasis ? `
-                    <div class="mb-4 text-sm leading-7">
-                        <span class="font-black">累積基準日：</span>
-                        週契約 ${escapeHtml(section.cycleBasis.weekly || "缺資料")} / 月契約 ${escapeHtml(section.cycleBasis.monthly || "缺資料")}
-                    </div>
-                ` : ""}
-                <div class="space-y-4">${grouped}</div>
+                <div class="flex flex-wrap items-center gap-3 mb-3">
+                    <h4 class="text-lg font-black">台指選擇權三大法人買權賣權未平倉</h4>
+                    <select id="dInstitutionSelect" class="wg-select">
+                        ${institutions.map((name, idx) => `<option value="${name}" ${idx === 0 ? "selected" : ""}>${name}</option>`).join("")}
+                    </select>
+                </div>
+                <div id="dInstitutionPanels">
+                    ${institutions.map((name, idx) => buildInstitutionPanel(name, idx === 0)).join("")}
+                </div>
+
+                <div class="mt-6 flex flex-wrap items-center gap-3 mb-3">
+                    <h4 class="text-lg font-black">台指選擇權大額交易人買賣權未平倉</h4>
+                    <select id="dLargeTraderContractSelect" class="wg-select">
+                        <option value="monthly" selected>月選</option>
+                        <option value="weekly">週選</option>
+                    </select>
+                </div>
+                <div id="dLargeTraderPanels">
+                    ${buildLargeTraderPanel("monthly", true)}
+                    ${buildLargeTraderPanel("weekly", false)}
+                </div>
+
                 ${(section.specificRows || []).length ? `
                     <div class="mt-6">
                         <div class="mb-3">
@@ -1687,6 +1825,7 @@
 
         function renderReport(report) {
             const tables = report.tables;
+            const marketHistory = (report.meta && report.meta.txSettlementHistory) ? report.meta.txSettlementHistory : {};
             reportDate.textContent = `資料日期：${report.meta.date}`;
             document.title = `${report.meta.date} 台指期貨 / 選擇權籌碼完整報告`;
             currentReportUrl = report.meta.reportUrl || window.location.href;
@@ -1699,8 +1838,8 @@
                 renderImportantDates(report.importantDates),
                 renderTableA(tables.A),
                 renderContractTable(tables.B, false),
-                renderTableC(tables.C),
-                renderTableD(tables.D),
+                renderTableC(tables.C, marketHistory),
+                renderTableD(tables.D, marketHistory),
                 renderTableE(tables.E),
                 renderTableF(tables.F),
                 renderTableG(tables.G),
@@ -1716,6 +1855,27 @@
             if (eSection) {
                 eSection.querySelectorAll("[data-sr-target]").forEach((node) => {
                     node.addEventListener("click", () => activateSrChart(eSection, node.getAttribute("data-sr-target")));
+                });
+            }
+
+            const dInstSelect = reportRoot.querySelector("#dInstitutionSelect");
+            const dInstPanels = reportRoot.querySelector("#dInstitutionPanels");
+            if (dInstSelect && dInstPanels) {
+                dInstSelect.addEventListener("change", () => {
+                    const target = dInstSelect.value;
+                    dInstPanels.querySelectorAll("[data-d-inst]").forEach((panel) => {
+                        panel.classList.toggle("hidden", panel.getAttribute("data-d-inst") !== target);
+                    });
+                });
+            }
+            const dLargeSelect = reportRoot.querySelector("#dLargeTraderContractSelect");
+            const dLargePanels = reportRoot.querySelector("#dLargeTraderPanels");
+            if (dLargeSelect && dLargePanels) {
+                dLargeSelect.addEventListener("change", () => {
+                    const target = dLargeSelect.value;
+                    dLargePanels.querySelectorAll("[data-d-large]").forEach((panel) => {
+                        panel.classList.toggle("hidden", panel.getAttribute("data-d-large") !== target);
+                    });
                 });
             }
             bindLazyCopySections();

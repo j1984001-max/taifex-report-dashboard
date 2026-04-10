@@ -168,19 +168,23 @@ def capture_d_section_screenshots(report_date: str) -> dict[str, bytes]:
                 ).first
                 d_section.wait_for(timeout=60_000)
 
-                # 1) 三大法人買賣權未平倉（外資/自營商/投信卡片區）
-                cards_container = d_section.locator("div.space-y-4").first
-                if cards_container.count() > 0:
-                    screenshots["d_institutions"] = cards_container.screenshot(type="png")
-                elif d_section.locator(".option-pair-card").count() > 0:
-                    # Fallback: concatenate cards by screenshotting the whole section if container shape changes.
-                    screenshots["d_institutions"] = d_section.screenshot(type="png")
+                # 1) 三大法人買賣權未平倉（WantGoo-style table; default=外資）
+                inst_panel = d_section.locator("#dInstitutionPanels .d-inst-panel:not(.hidden)").first
+                if inst_panel.count() > 0:
+                    screenshots["d_institutions"] = inst_panel.screenshot(type="png")
+                else:
+                    inst_container = d_section.locator("#dInstitutionPanels").first
+                    if inst_container.count() > 0:
+                        screenshots["d_institutions"] = inst_container.screenshot(type="png")
 
-                # 2) 特定法人表（「選擇權特定法人詳細版」區塊）
-                heading = d_section.locator("h4", has_text="選擇權特定法人詳細版").first
-                if heading.count() > 0:
-                    block = heading.locator("xpath=ancestor::div[1]")
-                    screenshots["d_specific"] = block.screenshot(type="png")
+                # 2) 大額交易人買賣權未平倉（WantGoo-style table; default=月選）
+                large_panel = d_section.locator("#dLargeTraderPanels .d-large-panel:not(.hidden)").first
+                if large_panel.count() > 0:
+                    screenshots["d_specific"] = large_panel.screenshot(type="png")
+                else:
+                    large_container = d_section.locator("#dLargeTraderPanels").first
+                    if large_container.count() > 0:
+                        screenshots["d_specific"] = large_container.screenshot(type="png")
                 break
             except Exception as exc:
                 last_error = exc

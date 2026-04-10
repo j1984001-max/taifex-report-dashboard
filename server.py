@@ -1068,6 +1068,245 @@ def fetch_option_history_rows(report_date: str, count: int = 5) -> list[dict[str
     return history
 
 
+def fetch_tx_reference_for_date(report_date: str) -> dict[str, Any] | None:
+    try:
+        html = request_html(
+            TAIFEX,
+            "/cht/3/futDailyMarketExcel",
+            {
+                "queryType": "2",
+                "marketCode": "0",
+                "commodity_id": "TX",
+                "commodity_id2": "",
+                "queryDate": report_date,
+            },
+        )
+        table = find_table(parse_tables(html), "契約")
+        return parse_tx_reference(table)
+    except Exception:
+        return None
+
+
+def fetch_business_day_series(
+    end_date: str,
+    *,
+    count: int,
+    fetch_fn,
+    max_lookback_days: int = 40,
+) -> list[dict[str, Any]]:
+    """Fetch up to `count` business-day records ending at end_date (inclusive).
+
+    fetch_fn(date_str) -> Any or None
+    Returns list sorted by date DESC, each item: {"date": "...", "value": Any}
+    """
+    series: list[dict[str, Any]] = []
+    current = datetime.strptime(end_date, "%Y/%m/%d")
+    checked = 0
+    while len(series) < count and checked < max_lookback_days:
+        date_text = current.strftime("%Y/%m/%d")
+        try:
+            value = fetch_fn(date_text)
+            if value:
+                series.append({"date": date_text, "value": value})
+        except Exception:
+            pass
+        current -= timedelta(days=1)
+        checked += 1
+    return series
+
+
+def build_tx_settlement_history(end_date: str, *, count: int = 5) -> dict[str, dict[str, Any]]:
+    """Return {date: {settlement, change, changePct}} using TX near-month settlement."""
+    series = fetch_business_day_series(end_date, count=count, fetch_fn=fetch_tx_reference_for_date)
+    result: dict[str, dict[str, Any]] = {}
+    for idx, item in enumerate(series):
+        date_text = item["date"]
+        ref = item["value"]
+        prev = series[idx + 1]["value"] if idx + 1 < len(series) else None
+        settlement = ref.get("settlement")
+        prev_settlement = prev.get("settlement") if prev else None
+        change = None
+        change_pct = None
+        if settlement is not None and prev_settlement is not None:
+            change = settlement - prev_settlement
+            if prev_settlement:
+                change_pct = change / prev_settlement * 100
+        result[date_text] = {
+            "settlement": settlement,
+            "change": change,
+            "changePct": change_pct,
+        }
+    return result
+
+
+def build_large_trader_fut_history_rows(end_date: str, monthly_code: str, *, count: int = 5) -> list[dict[str, Any]]:
+    series = fetch_business_day_series(
+        end_date,
+        count=count,
+        fetch_fn=lambda d: fetch_large_trader_for_date(d, monthly_code),
+    )
+    rows: list[dict[str, Any]] = []
+    for idx, item in enumerate(series):
+        date_text = item["date"]
+        day_rows = item["value"]
+        # WantGoo「近月」對應月契約（避免用所有契約口徑混淆）
+        row = next((r for r in day_rows if r.get("contractType") == "monthly"), None)
+        if not row:
+            continue
+        prev_rows = series[idx + 1]["value"] if idx + 1 < len(series) else None
+        prev_row = (
+            next((r for r in prev_rows if r.get("contractType") == "monthly"), None)
+            if prev_rows else None
+        )
+
+        def delta(key: str) -> int | None:
+            if not prev_row:
+                return None
+            if row.get(key) is None or prev_row.get(key) is None:
+                return None
+            return int(row[key]) - int(prev_row[key])
+
+        rows.append(
+            {
+                "date": date_text,
+                "contractLabel": row.get("contractLabel") or "月契約",
+                "longTop5Qty": row.get("longTop5Qty"),
+                "longTop5Day": delta("longTop5Qty"),
+                "shortTop5Qty": row.get("shortTop5Qty"),
+                "shortTop5Day": delta("shortTop5Qty"),
+                "longTop10Qty": row.get("longTop10Qty"),
+                "longTop10Day": delta("longTop10Qty"),
+                "shortTop10Qty": row.get("shortTop10Qty"),
+                "shortTop10Day": delta("shortTop10Qty"),
+                "longTop5SpecificQty": row.get("longTop5SpecificQty"),
+                "longTop5SpecificDay": delta("longTop5SpecificQty"),
+                "shortTop5SpecificQty": row.get("shortTop5SpecificQty"),
+                "shortTop5SpecificDay": delta("shortTop5SpecificQty"),
+                "longTop10SpecificQty": row.get("longTop10SpecificQty"),
+                "longTop10SpecificDay": delta("longTop10SpecificQty"),
+                "shortTop10SpecificQty": row.get("shortTop10SpecificQty"),
+                "shortTop10SpecificDay": delta("shortTop10SpecificQty"),
+            }
+        )
+    return rows
+
+
+def build_large_trader_opt_history_rows(end_date: str, monthly_code: str, *, count: int = 5) -> list[dict[str, Any]]:
+    series = fetch_business_day_series(
+        end_date,
+        count=count,
+        fetch_fn=lambda d: fetch_large_trader_option_for_date(d, monthly_code),
+    )
+    rows: list[dict[str, Any]] = []
+    for idx, item in enumerate(series):
+        date_text = item["date"]
+        day_rows: list[dict[str, Any]] = item["value"]
+        prev_rows: list[dict[str, Any]] | None = series[idx + 1]["value"] if idx + 1 < len(series) else None
+
+        def prev_match(current: dict[str, Any]) -> dict[str, Any] | None:
+            if not prev_rows:
+                return None
+            return next(
+                (
+                    r
+                    for r in prev_rows
+                    if r.get("contractType") == current.get("contractType")
+                    and r.get("optionSide") == current.get("optionSide")
+                ),
+                None,
+            )
+
+        for row in day_rows:
+            prev = prev_match(row)
+
+            def delta(key: str) -> int | None:
+                if not prev:
+                    return None
+                if row.get(key) is None or prev.get(key) is None:
+                    return None
+                return int(row[key]) - int(prev[key])
+
+            rows.append(
+                {
+                    "date": date_text,
+                    "contractType": row.get("contractType"),
+                    "contractLabel": row.get("contractLabel"),
+                    "optionSide": row.get("optionSide"),
+                    "optionLabel": row.get("optionLabel"),
+                    "longTop5Qty": row.get("longTop5Qty"),
+                    "longTop5Day": delta("longTop5Qty"),
+                    "shortTop5Qty": row.get("shortTop5Qty"),
+                    "shortTop5Day": delta("shortTop5Qty"),
+                    "longTop10Qty": row.get("longTop10Qty"),
+                    "longTop10Day": delta("longTop10Qty"),
+                    "shortTop10Qty": row.get("shortTop10Qty"),
+                    "shortTop10Day": delta("shortTop10Qty"),
+                    "longTop5SpecificQty": row.get("longTop5SpecificQty"),
+                    "longTop5SpecificDay": delta("longTop5SpecificQty"),
+                    "shortTop5SpecificQty": row.get("shortTop5SpecificQty"),
+                    "shortTop5SpecificDay": delta("shortTop5SpecificQty"),
+                    "longTop10SpecificQty": row.get("longTop10SpecificQty"),
+                    "longTop10SpecificDay": delta("longTop10SpecificQty"),
+                    "shortTop10SpecificQty": row.get("shortTop10SpecificQty"),
+                    "shortTop10SpecificDay": delta("shortTop10SpecificQty"),
+                    "marketOi": row.get("marketOi"),
+                }
+            )
+    rows.sort(key=lambda r: (
+        r["date"],
+        0 if r.get("optionSide") == "call" else 1,
+        0 if r.get("contractType") == "monthly" else 1,
+    ), reverse=True)
+    return rows
+
+
+def build_institution_option_history_rows(
+    end_date: str,
+    *,
+    count: int,
+) -> list[dict[str, Any]]:
+    series = fetch_business_day_series(end_date, count=count, fetch_fn=fetch_option_rows_for_date)
+    rows: list[dict[str, Any]] = []
+    for idx, item in enumerate(series):
+        date_text = item["date"]
+        day_rows: list[dict[str, Any]] = item["value"]
+        prev_rows: list[dict[str, Any]] | None = series[idx + 1]["value"] if idx + 1 < len(series) else None
+        prev_map = {
+            (r.get("institution"), r.get("optionSide")): r for r in (prev_rows or [])
+        }
+        for row in day_rows:
+            prev = prev_map.get((row.get("institution"), row.get("optionSide")))
+
+            def delta(key: str) -> int | None:
+                if not prev:
+                    return None
+                if row.get(key) is None or prev.get(key) is None:
+                    return None
+                return int(row[key]) - int(prev[key])
+
+            rows.append(
+                {
+                    "date": date_text,
+                    "institution": row.get("institution"),
+                    "optionSide": row.get("optionSide"),
+                    "optionLabel": row.get("optionLabel"),
+                    "oiLongQty": row.get("oiLongQty"),
+                    "oiLongAmount": row.get("oiLongAmount"),
+                    "oiLongQtyDay": delta("oiLongQty"),
+                    "oiLongAmountDay": delta("oiLongAmount"),
+                    "oiShortQty": row.get("oiShortQty"),
+                    "oiShortAmount": row.get("oiShortAmount"),
+                    "oiShortQtyDay": delta("oiShortQty"),
+                    "oiShortAmountDay": delta("oiShortAmount"),
+                    "oiNetQty": row.get("oiNetQty"),
+                    "oiNetAmount": row.get("oiNetAmount"),
+                    "oiNetQtyDay": delta("oiNetQty"),
+                    "oiNetAmountDay": delta("oiNetAmount"),
+                }
+            )
+    return rows
+
+
 def fetch_option_rows_for_date(report_date: str) -> list[dict[str, Any]]:
     html = request_html(
         TAIFEX,
@@ -2617,6 +2856,12 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     option_contracts = parse_option_contracts(options_table)
     total_summary = build_total_summary(futures_contracts, option_contracts)
     tx_reference = parse_tx_reference(tx_daily_table)
+
+    tx_settlement_history = build_tx_settlement_history(effective_date, count=5)
+    large_trader_fut_history_rows = build_large_trader_fut_history_rows(effective_date, tx_reference["contract"], count=5)
+    large_trader_opt_history_rows = build_large_trader_opt_history_rows(effective_date, tx_reference["contract"], count=5)
+    institution_option_history_rows = build_institution_option_history_rows(effective_date, count=5)
+
     large_trader_rows = fetch_large_trader_for_date(effective_date, tx_reference["contract"])
     if not large_trader_rows:
         raise ValueError("找不到大額交易人資料")
@@ -2706,6 +2951,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
             "date": base_date,
             "generatedAt": datetime.now().isoformat(timespec="seconds"),
             "reportUrl": report_url or PUBLIC_BASE_URL,
+            "txSettlementHistory": tx_settlement_history,
         },
         "importantDates": important_dates,
         "changeOverview": {
@@ -2759,6 +3005,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                     "monthly": monthly_cycle_start_date,
                 },
                 "rows": large_trader_rows,
+                "historyRows": large_trader_fut_history_rows,
                 "interpretation": "本表用來看近月台股期貨大額交易人集中度，並將前五大與前十大之中特定法人合計一併拆開，觀察集中度是否由特定法人主導。",
                 "highlights": [
                     "本表拆分為週契約與月契約兩列，不使用『所有契約』欄位，以避免和近月行情口徑混淆。",
@@ -2775,7 +3022,10 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                     "weekly": weekly_cycle_start_date,
                     "monthly": monthly_cycle_start_date,
                 },
+                "monthlyContract": tx_reference["contract"],
                 "rows": option_contracts,
+                "institutionHistoryRows": institution_option_history_rows,
+                "largeTraderOptionHistoryRows": large_trader_opt_history_rows,
                 "specificRows": [],
                 "specificPreviousDate": large_option_previous_date,
                 "interpretation": "本表直接整理臺指選擇權法人分契約資料，除交易淨額與未平倉淨額外，也補上與前一營業日及結算後基準日相比的未平倉變動，用來看法人選擇權部位是否持續加碼或回補。",
