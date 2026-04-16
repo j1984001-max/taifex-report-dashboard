@@ -17,12 +17,39 @@
         .dark tr:hover { background: #162235; }
         .num-pos { color: #dc2626; font-weight: 700; }
         .num-neg { color: #16a34a; font-weight: 700; }
+        /* WantGoo-style tables (C/D) */
+        .wantgoo-table {
+            border-collapse: separate;
+            border-spacing: 0;
+        }
         .wantgoo-table th,
-        .wantgoo-table td { text-align: center; }
-        .wantgoo-table td:first-child,
-        .wantgoo-table th:first-child { text-align: center; }
+        .wantgoo-table td {
+            text-align: center;
+            border-right: 1px solid #e2e8f0;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: middle;
+        }
+        .wantgoo-table th:last-child,
+        .wantgoo-table td:last-child { border-right: 0; }
+        .dark .wantgoo-table th,
+        .dark .wantgoo-table td {
+            border-right-color: #334155;
+            border-bottom-color: #334155;
+        }
+        .wantgoo-table thead th {
+            background: #475569;
+            color: #ffffff;
+            font-weight: 900;
+            letter-spacing: 0.02em;
+        }
+        .dark .wantgoo-table thead th {
+            background: #1f2937;
+            color: #e2e8f0;
+        }
+        .wantgoo-table tbody tr:nth-child(even) td { background: #f8fafc; }
+        .dark .wantgoo-table tbody tr:nth-child(even) td { background: rgba(15, 23, 42, 0.6); }
         .wantgoo-table td { padding: 10px 12px; }
-        .wg-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+        .wg-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
         .wg-main { font-size: 15px; font-weight: 800; }
         .wg-sub { font-size: 12px; line-height: 1.2; color: #64748b; }
         .dark .wg-sub { color: #94a3b8; }
@@ -409,6 +436,10 @@
         .table-wrap table {
             min-width: 720px;
         }
+        .table-wrap table.wantgoo-table {
+            /* Many columns: keep readable by forcing horizontal scroll instead of squeezing. */
+            min-width: 1100px;
+        }
         .copy-block {
             white-space: pre-wrap;
             line-height: 1.7;
@@ -587,6 +618,17 @@
                 align-items: center;
                 justify-content: center;
             }
+            .wg-select {
+                width: 100%;
+                min-height: 44px;
+                font-size: 14px;
+            }
+            .table-wrap table.wantgoo-table {
+                min-width: 1100px;
+            }
+            .wantgoo-table td { padding: 8px 10px; }
+            .wg-main { font-size: 14px; }
+            .wg-sub { font-size: 11px; }
             .share-link {
                 display: none;
             }
