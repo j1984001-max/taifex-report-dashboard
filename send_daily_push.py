@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import ssl
 import smtplib
 import subprocess
@@ -65,6 +66,31 @@ def split_telegram_text(text: str, limit: int = TELEGRAM_LIMIT) -> list[str]:
         chunks.append(remaining[:cut].strip())
         remaining = remaining[cut:].strip()
     return chunks
+
+
+def decorate_telegram_text(text: str) -> str:
+    """Add directional symbols for Telegram, where color cues are unavailable."""
+
+    def signed_repl(match: re.Match[str]) -> str:
+        token = match.group(0)
+        numeric = token.replace(",", "")
+        try:
+            value = float(numeric)
+        except ValueError:
+            return token
+        if value > 0:
+            return f"▲ {token}"
+        if value < 0:
+            return f"▼ {token}"
+        return f"■ {token}"
+
+    text = text.replace("增加 ", "▲增加 ")
+    text = text.replace("減少 ", "▼減少 ")
+    text = text.replace("不變", "■不變")
+
+    # Convert signed numbers such as +123, -456, +1.23 into symbol-prefixed text.
+    text = re.sub(r"(?<![A-Za-z0-9])([+-]\d[\d,]*(?:\.\d+)?)(?![%\d])", signed_repl, text)
+    return text
 
 
 def send_telegram_message(bot_token: str, chat_id: str, text: str) -> dict[str, object]:
@@ -252,7 +278,7 @@ def build_quick_overview(report: dict[str, object]) -> str:
     warning = build_important_date_warning(report)
     if warning:
         lines.extend(["", "重要日期提醒", warning])
-    return "\n".join(lines)
+    return decorate_telegram_text("\n".join(lines))
 
 
 def build_important_date_warning(report: dict[str, object]) -> str:
@@ -356,7 +382,7 @@ def main() -> None:
 
     token = load_telegram_token()
     quick_overview = build_quick_overview(report)
-    full_messages = split_telegram_text(report["telegram"])
+    full_messages = split_telegram_text(decorate_telegram_text(report["telegram"]))
 
     results = []
     results.append(send_telegram_message(token, args.chat_id, quick_overview))
