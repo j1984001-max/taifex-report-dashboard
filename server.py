@@ -920,12 +920,20 @@ def build_futures_delta_overview(rows: list[dict[str, Any]]) -> dict[str, Any]:
         product_rows = [row for row in rows if row["product"] == product]
         if not product_rows:
             continue
+        day_long_total = sum((row["dayChangeOiLongQty"] or 0) for row in product_rows)
+        day_short_total = sum((row["dayChangeOiShortQty"] or 0) for row in product_rows)
         day_total = sum((row["dayChangeOiNetQty"] or 0) for row in product_rows)
+        cycle_long_total = sum((row["cycleChangeOiLongQty"] or 0) for row in product_rows)
+        cycle_short_total = sum((row["cycleChangeOiShortQty"] or 0) for row in product_rows)
         cycle_total = sum((row["cycleChangeOiNetQty"] or 0) for row in product_rows)
         items.append(
             {
                 "product": product,
+                "dayLongTotal": day_long_total,
+                "dayShortTotal": day_short_total,
                 "dayTotal": day_total,
+                "cycleLongTotal": cycle_long_total,
+                "cycleShortTotal": cycle_short_total,
                 "cycleTotal": cycle_total,
                 "cycleStartDate": product_rows[0]["cycleStartDate"],
                 "institutions": [
@@ -945,11 +953,28 @@ def build_futures_delta_overview(rows: list[dict[str, Any]]) -> dict[str, Any]:
     highlights = []
     for item in items:
         institution_text = "；".join(
-            f"{inst['institution']}：單日淨額 {format_increase_decrease(inst['dayNetChange'])}、累積淨額 {format_increase_decrease(inst['cycleNetChange'])}"
+            (
+                f"{inst['institution']}："
+                f"單日多方 {format_increase_decrease(inst['dayLongChange'])}、"
+                f"空方 {format_increase_decrease(inst['dayShortChange'])}、"
+                f"淨額 {format_increase_decrease(inst['dayNetChange'])}；"
+                f"累積多方 {format_increase_decrease(inst['cycleLongChange'])}、"
+                f"空方 {format_increase_decrease(inst['cycleShortChange'])}、"
+                f"淨額 {format_increase_decrease(inst['cycleNetChange'])}"
+            )
             for inst in item["institutions"]
         )
         highlights.append(
-            f"{item['product']}：單日淨額合計 {format_increase_decrease(item['dayTotal'])} 口，自 {item['cycleStartDate']} 起累積淨額合計 {format_increase_decrease(item['cycleTotal'])} 口；{institution_text}。"
+            (
+                f"{item['product']}："
+                f"單日多方合計 {format_increase_decrease(item['dayLongTotal'])} 口、"
+                f"空方合計 {format_increase_decrease(item['dayShortTotal'])} 口、"
+                f"淨額合計 {format_increase_decrease(item['dayTotal'])} 口；"
+                f"自 {item['cycleStartDate']} 起累積多方合計 {format_increase_decrease(item['cycleLongTotal'])} 口、"
+                f"空方合計 {format_increase_decrease(item['cycleShortTotal'])} 口、"
+                f"淨額合計 {format_increase_decrease(item['cycleTotal'])} 口；"
+                f"{institution_text}。"
+            )
         )
     return {"items": items, "highlights": highlights}
 
