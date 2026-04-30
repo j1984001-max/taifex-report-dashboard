@@ -1239,7 +1239,7 @@ def format_market_price(value: float | int | None) -> str:
     return f"{numeric:,.2f}".rstrip("0").rstrip(".")
 
 
-def build_recent_futures_spot_range_rows(end_date: str, *, count: int = 3) -> list[dict[str, Any]]:
+def build_recent_futures_spot_range_rows(end_date: str, *, count: int = 5) -> list[dict[str, Any]]:
     futures_series = fetch_business_day_series(end_date, count=count, fetch_fn=fetch_tx_reference_for_date)
     spot_series = fetch_business_day_series(end_date, count=count, fetch_fn=fetch_taiex_high_low_for_date)
     spot_map = {item["date"]: item["value"] for item in spot_series}
@@ -1259,6 +1259,32 @@ def build_recent_futures_spot_range_rows(end_date: str, *, count: int = 3) -> li
             }
         )
     return rows
+
+
+def classify_pressure_strength(total: int | None, *, side: str) -> str:
+    if total is None:
+        return "缺資料"
+    abs_total = abs(total)
+    if abs_total < 500:
+        base = "變動輕微"
+    elif abs_total < 1500:
+        base = "中度變動"
+    elif abs_total < 3000:
+        base = "明顯變動"
+    else:
+        base = "強烈變動"
+
+    if side == "short":
+        if total > 0:
+            return f"{base}，偏空加碼"
+        if total < 0:
+            return f"{base}，空方減碼"
+        return "變動輕微，空方中性"
+    if total > 0:
+        return f"{base}，偏多加碼"
+    if total < 0:
+        return f"{base}，多方減碼"
+    return "變動輕微，多方中性"
 
 
 def build_high_low_specific_alignment_rows(
@@ -1313,6 +1339,24 @@ def build_high_low_specific_alignment_rows(
         opt = opt_map.get(row["date"], {})
         foreign_fut = foreign_fut_map.get(row["date"], {})
         foreign_opt = foreign_opt_map.get(row["date"], {})
+        short_total = sum(
+            value or 0
+            for value in [
+                fut.get("shortTop10SpecificDay"),
+                opt.get("optionSellTop10SpecificDay"),
+                foreign_opt.get("foreignOptionSellDay"),
+                foreign_fut.get("foreignFuturesSellDay"),
+            ]
+        )
+        long_total = sum(
+            value or 0
+            for value in [
+                fut.get("longTop10SpecificDay"),
+                opt.get("optionBuyTop10SpecificDay"),
+                foreign_opt.get("foreignOptionBuyDay"),
+                foreign_fut.get("foreignFuturesBuyDay"),
+            ]
+        )
         rows.append(
             {
                 **row,
@@ -1328,6 +1372,10 @@ def build_high_low_specific_alignment_rows(
                 "foreignFuturesSellDay": foreign_fut.get("foreignFuturesSellDay"),
                 "foreignOptionBuyDay": foreign_opt.get("foreignOptionBuyDay"),
                 "foreignOptionSellDay": foreign_opt.get("foreignOptionSellDay"),
+                "highPointShortTotal": short_total,
+                "lowPointLongTotal": long_total,
+                "highPointShortLabel": classify_pressure_strength(short_total, side="short"),
+                "lowPointLongLabel": classify_pressure_strength(long_total, side="long"),
             }
         )
     return rows
@@ -3176,7 +3224,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     if not pc_ratio:
         pc_ratio, pc_ratio_method = fetch_pc_ratio_fallback(base_date)
     important_dates = build_important_dates(base_date)
-    recent_futures_spot_ranges = build_recent_futures_spot_range_rows(base_date, count=3)
+    recent_futures_spot_ranges = build_recent_futures_spot_range_rows(base_date, count=5)
     high_low_alignment_rows = build_high_low_specific_alignment_rows(
         recent_futures_spot_ranges,
         large_trader_fut_history_rows,
@@ -3236,12 +3284,14 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                     f"期貨前十大特定法人賣方單日 {format_signed(row['futuresSellTop10SpecificDay'])}，"
                     f"選擇權前十大特定法人賣方單日 {format_signed(row['optionSellTop10SpecificDay'])}，"
                     f"外資選擇權賣方單日 {format_signed(row['foreignOptionSellDay'])}，"
-                    f"外資期貨空方單日 {format_signed(row['foreignFuturesSellDay'])}；"
+                    f"外資期貨空方單日 {format_signed(row['foreignFuturesSellDay'])}，"
+                    f"空方總和 {format_signed(row['highPointShortTotal'])}（{row['highPointShortLabel']}）；"
                     f"低點對照：期貨低 {format_market_price(row['futuresLow'])}，"
                     f"期貨前十大特定法人買方單日 {format_signed(row['futuresBuyTop10SpecificDay'])}，"
                     f"選擇權前十大特定法人買方單日 {format_signed(row['optionBuyTop10SpecificDay'])}，"
                     f"外資選擇權買方單日 {format_signed(row['foreignOptionBuyDay'])}，"
-                    f"外資期貨多方單日 {format_signed(row['foreignFuturesBuyDay'])}。"
+                    f"外資期貨多方單日 {format_signed(row['foreignFuturesBuyDay'])}，"
+                    f"多方總和 {format_signed(row['lowPointLongTotal'])}（{row['lowPointLongLabel']}）。"
                 )
                 for row in high_low_alignment_rows
             ],

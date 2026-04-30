@@ -328,7 +328,7 @@ def build_quick_overview(report: dict[str, object]) -> str:
 
     recent_range_highlights = overview.get("recentRangeHighlights") or []
     if recent_range_highlights:
-        lines.extend(["", "最近三天期貨 / 現貨指數高低點"])
+        lines.extend(["", "最近五個營業日期貨 / 現貨指數高低點"])
         lines.extend(f"- {item}" for item in recent_range_highlights)
 
     alignment_highlights = overview.get("highLowAlignmentHighlights") or []
