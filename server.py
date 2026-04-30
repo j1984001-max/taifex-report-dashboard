@@ -1372,6 +1372,18 @@ def build_high_low_specific_alignment_rows(
                 "foreignFuturesSellDay": foreign_fut.get("foreignFuturesSellDay"),
                 "foreignOptionBuyDay": foreign_opt.get("foreignOptionBuyDay"),
                 "foreignOptionSellDay": foreign_opt.get("foreignOptionSellDay"),
+                "futuresSpecificNetDay": (
+                    None
+                    if fut.get("longTop10SpecificDay") is None or fut.get("shortTop10SpecificDay") is None
+                    else int(fut.get("longTop10SpecificDay") or 0) - int(fut.get("shortTop10SpecificDay") or 0)
+                ),
+                "optionSpecificNetDay": int(opt.get("optionBuyTop10SpecificDay") or 0) - int(opt.get("optionSellTop10SpecificDay") or 0),
+                "foreignOptionNetDay": int(foreign_opt.get("foreignOptionBuyDay") or 0) - int(foreign_opt.get("foreignOptionSellDay") or 0),
+                "foreignFuturesNetDay": (
+                    None
+                    if foreign_fut.get("foreignFuturesBuyDay") is None or foreign_fut.get("foreignFuturesSellDay") is None
+                    else int(foreign_fut.get("foreignFuturesBuyDay") or 0) - int(foreign_fut.get("foreignFuturesSellDay") or 0)
+                ),
                 "highPointShortTotal": short_total,
                 "lowPointLongTotal": long_total,
                 "highPointShortLabel": classify_pressure_strength(short_total, side="short"),
