@@ -1112,6 +1112,72 @@ def fetch_tx_reference_for_date(report_date: str) -> dict[str, Any] | None:
         return None
 
 
+def fetch_monthly_option_atm_range_for_date(report_date: str) -> dict[str, Any] | None:
+    tx_reference = fetch_tx_reference_for_date(report_date)
+    if not tx_reference:
+        return None
+    try:
+        html = request_html(
+            TAIFEX,
+            "/cht/3/optDailyMarketExcel",
+            {
+                "queryType": "2",
+                "marketCode": "0",
+                "commodity_id": "TXO",
+                "commodity_id2": "",
+                "queryDate": report_date,
+            },
+        )
+        table = find_table(parse_tables(html), "履約價")
+        monthly_series = tx_reference["contract"]
+        rows = [row for row in table[1:] if len(row) >= 20 and row[0] == "TXO" and row[1] == monthly_series]
+        if not rows:
+            return None
+        strikes = sorted({to_int(row[3]) for row in rows if normalize_text(row[3])})
+        if not strikes:
+            return None
+        atm_strike = min(strikes, key=lambda strike: abs(strike - tx_reference["settlement"]))
+        call_row = next((row for row in rows if to_int(row[3]) == atm_strike and row[4] == "Call"), None)
+        put_row = next((row for row in rows if to_int(row[3]) == atm_strike and row[4] == "Put"), None)
+        return {
+            "date": report_date,
+            "series": monthly_series,
+            "atmStrike": atm_strike,
+            "callHigh": parse_price_value(call_row[6]) if call_row else None,
+            "callLow": parse_price_value(call_row[7]) if call_row else None,
+            "putHigh": parse_price_value(put_row[6]) if put_row else None,
+            "putLow": parse_price_value(put_row[7]) if put_row else None,
+        }
+    except Exception:
+        return None
+
+
+def fetch_taiex_high_low_for_date(report_date: str) -> dict[str, Any] | None:
+    try:
+        date_obj = datetime.strptime(report_date, "%Y/%m/%d")
+        month_query = date_obj.strftime("%Y%m%d")
+        target = f"{date_obj.year - 1911}/{date_obj.month:02d}/{date_obj.day:02d}"
+        payload = json.loads(
+            request_bytes(
+                "https://www.twse.com.tw",
+                "/rwd/zh/TAIEX/MI_5MINS_HIST",
+                {"response": "json", "date": month_query},
+            ).decode("utf-8", "ignore")
+        )
+        for row in payload.get("data", []):
+            if row and row[0] == target:
+                return {
+                    "date": report_date,
+                    "open": parse_price_value(row[1]),
+                    "high": parse_price_value(row[2]),
+                    "low": parse_price_value(row[3]),
+                    "close": parse_price_value(row[4]),
+                }
+    except Exception:
+        return None
+    return None
+
+
 def fetch_business_day_series(
     end_date: str,
     *,
@@ -1162,6 +1228,109 @@ def build_tx_settlement_history(end_date: str, *, count: int = 5) -> dict[str, d
             "changePct": change_pct,
         }
     return result
+
+
+def format_market_price(value: float | int | None) -> str:
+    if value is None:
+        return "缺資料"
+    numeric = float(value)
+    if numeric.is_integer():
+        return format_number(int(numeric))
+    return f"{numeric:,.2f}".rstrip("0").rstrip(".")
+
+
+def build_recent_futures_spot_range_rows(end_date: str, *, count: int = 3) -> list[dict[str, Any]]:
+    futures_series = fetch_business_day_series(end_date, count=count, fetch_fn=fetch_tx_reference_for_date)
+    spot_series = fetch_business_day_series(end_date, count=count, fetch_fn=fetch_taiex_high_low_for_date)
+    spot_map = {item["date"]: item["value"] for item in spot_series}
+    rows: list[dict[str, Any]] = []
+    for item in futures_series:
+        date_text = item["date"]
+        futures_row = item["value"]
+        spot_row = spot_map.get(date_text)
+        rows.append(
+            {
+                "date": date_text,
+                "contract": futures_row.get("contract"),
+                "futuresHigh": futures_row.get("high"),
+                "futuresLow": futures_row.get("low"),
+                "spotHigh": None if not spot_row else spot_row.get("high"),
+                "spotLow": None if not spot_row else spot_row.get("low"),
+            }
+        )
+    return rows
+
+
+def build_high_low_specific_alignment_rows(
+    range_rows: list[dict[str, Any]],
+    fut_history_rows: list[dict[str, Any]],
+    opt_history_rows: list[dict[str, Any]],
+    foreign_futures_history_rows: list[dict[str, Any]],
+    institution_option_history_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    fut_map = {row["date"]: row for row in fut_history_rows if row.get("contractLabel") == "月契約"}
+    foreign_fut_map = {row["date"]: row for row in foreign_futures_history_rows}
+
+    opt_map: dict[str, dict[str, Any]] = {}
+    for row in opt_history_rows:
+        if row.get("contractType") != "monthly":
+            continue
+        entry = opt_map.setdefault(
+            row["date"],
+            {
+                "optionBuyTop10SpecificDay": 0,
+                "optionSellTop10SpecificDay": 0,
+                "optionBuyTop10SpecificQty": 0,
+                "optionSellTop10SpecificQty": 0,
+            },
+        )
+        entry["optionBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
+        entry["optionSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
+        entry["optionBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
+        entry["optionSellTop10SpecificQty"] += int(row.get("shortTop10SpecificQty") or 0)
+
+    foreign_opt_map: dict[str, dict[str, Any]] = {}
+    for row in institution_option_history_rows:
+        if row.get("institution") != "外資":
+            continue
+        entry = foreign_opt_map.setdefault(
+            row["date"],
+            {
+                "foreignOptionBuyDay": 0,
+                "foreignOptionSellDay": 0,
+                "foreignOptionBuyQty": 0,
+                "foreignOptionSellQty": 0,
+            },
+        )
+        entry["foreignOptionBuyDay"] += int(row.get("oiLongQtyDay") or 0)
+        entry["foreignOptionSellDay"] += int(row.get("oiShortQtyDay") or 0)
+        entry["foreignOptionBuyQty"] += int(row.get("oiLongQty") or 0)
+        entry["foreignOptionSellQty"] += int(row.get("oiShortQty") or 0)
+
+    rows: list[dict[str, Any]] = []
+    for row in range_rows:
+        fut = fut_map.get(row["date"], {})
+        opt = opt_map.get(row["date"], {})
+        foreign_fut = foreign_fut_map.get(row["date"], {})
+        foreign_opt = foreign_opt_map.get(row["date"], {})
+        rows.append(
+            {
+                **row,
+                "futuresBuyTop10SpecificDay": fut.get("longTop10SpecificDay"),
+                "futuresSellTop10SpecificDay": fut.get("shortTop10SpecificDay"),
+                "futuresBuyTop10SpecificQty": fut.get("longTop10SpecificQty"),
+                "futuresSellTop10SpecificQty": fut.get("shortTop10SpecificQty"),
+                "optionBuyTop10SpecificDay": opt.get("optionBuyTop10SpecificDay"),
+                "optionSellTop10SpecificDay": opt.get("optionSellTop10SpecificDay"),
+                "optionBuyTop10SpecificQty": opt.get("optionBuyTop10SpecificQty"),
+                "optionSellTop10SpecificQty": opt.get("optionSellTop10SpecificQty"),
+                "foreignFuturesBuyDay": foreign_fut.get("foreignFuturesBuyDay"),
+                "foreignFuturesSellDay": foreign_fut.get("foreignFuturesSellDay"),
+                "foreignOptionBuyDay": foreign_opt.get("foreignOptionBuyDay"),
+                "foreignOptionSellDay": foreign_opt.get("foreignOptionSellDay"),
+            }
+        )
+    return rows
 
 
 def build_large_trader_fut_history_rows(end_date: str, monthly_code: str, *, count: int = 5) -> list[dict[str, Any]]:
@@ -1282,6 +1451,39 @@ def build_large_trader_opt_history_rows(end_date: str, monthly_code: str, *, cou
         0 if r.get("optionSide") == "call" else 1,
         0 if r.get("contractType") == "monthly" else 1,
     ), reverse=True)
+    return rows
+
+
+def build_foreign_futures_history_rows(end_date: str, *, count: int = 5) -> list[dict[str, Any]]:
+    series = fetch_business_day_series(end_date, count=count + 1, fetch_fn=fetch_futures_rows_for_date)
+    rows: list[dict[str, Any]] = []
+    for idx, item in enumerate(series[:count]):
+        date_text = item["date"]
+        row = next(
+            (
+                r for r in item["value"]
+                if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
+            ),
+            None,
+        )
+        if not row:
+            continue
+        prev_rows = series[idx + 1]["value"] if idx + 1 < len(series) else None
+        prev = next(
+            (
+                r for r in (prev_rows or [])
+                if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
+            ),
+            None,
+        )
+        rows.append(
+            {
+                "date": date_text,
+                "foreignFuturesBuyDay": None if not prev else int(row.get("oiLongQty") or 0) - int(prev.get("oiLongQty") or 0),
+                "foreignFuturesSellDay": None if not prev else int(row.get("oiShortQty") or 0) - int(prev.get("oiShortQty") or 0),
+                "foreignFuturesNetDay": None if not prev else int(row.get("oiNetQty") or 0) - int(prev.get("oiNetQty") or 0),
+            }
+        )
     return rows
 
 
@@ -1451,6 +1653,9 @@ def parse_tx_reference(table: list[list[str]]) -> dict[str, Any]:
         if row[0] == "TX" and re.fullmatch(r"\d{6}", row[1]):
             return {
                 "contract": row[1],
+                "open": to_int(row[2]),
+                "high": to_int(row[3]),
+                "low": to_int(row[4]),
                 "lastPrice": to_int(row[5]),
                 "settlement": to_int(row[11]),
                 "oi": to_int(row[12]),
@@ -1754,6 +1959,16 @@ def parse_option_market_rows(table: list[list[str]], series: str) -> dict[int, d
         elif row[4] == "Put":
             entry["putOi"] = to_int(row[15])
     return result
+
+
+def parse_price_value(value: str) -> float | None:
+    text = normalize_text(value).replace(",", "")
+    if not text or text == "-":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 def classify_itm_bias(call_change: int, put_change: int, call_oi: int, put_oi: int) -> str:
@@ -2194,6 +2409,15 @@ def format_buy_sell_delta_summary(label: str, top5_qty: int | None, top5_day: in
     )
 
 
+def format_current_day_cycle_summary(current: Any, day_delta: Any, cycle_delta: Any, cycle_label_date: str) -> str:
+    current_text = current if isinstance(current, str) else specific_value_text(current)
+    return (
+        f"目前 {current_text} 口，"
+        f"單日 {format_signed(day_delta)}、"
+        f"自 {cycle_label_date} 起累積 {format_signed(cycle_delta)}"
+    )
+
+
 def build_analysis(report: dict[str, Any]) -> dict[str, Any]:
     summary_rows = report["tables"]["A"]["rows"]
     foreign = next(row for row in summary_rows if row["institution"] == "外資")
@@ -2573,6 +2797,11 @@ def format_number(value: Any) -> str:
 def format_signed(value: Any) -> str:
     if value is None:
         return "缺資料"
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return "缺資料"
+        return stripped
     return f"{int(value):+,}"
 
 
@@ -2884,9 +3113,10 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
 
     # Keep history short to avoid slow API responses on free tiers; UI still matches WantGoo layout.
     tx_settlement_history = build_tx_settlement_history(effective_date, count=3)
-    large_trader_fut_history_rows = build_large_trader_fut_history_rows(effective_date, tx_reference["contract"], count=3)
-    large_trader_opt_history_rows = build_large_trader_opt_history_rows(effective_date, tx_reference["contract"], count=3)
-    institution_option_history_rows = build_institution_option_history_rows(effective_date, count=3)
+    large_trader_fut_history_rows = build_large_trader_fut_history_rows(effective_date, tx_reference["contract"], count=4)
+    large_trader_opt_history_rows = build_large_trader_opt_history_rows(effective_date, tx_reference["contract"], count=4)
+    institution_option_history_rows = build_institution_option_history_rows(effective_date, count=4)
+    foreign_futures_history_rows = build_foreign_futures_history_rows(effective_date, count=4)
 
     large_trader_rows = fetch_large_trader_for_date(effective_date, tx_reference["contract"])
     if not large_trader_rows:
@@ -2946,6 +3176,14 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     if not pc_ratio:
         pc_ratio, pc_ratio_method = fetch_pc_ratio_fallback(base_date)
     important_dates = build_important_dates(base_date)
+    recent_futures_spot_ranges = build_recent_futures_spot_range_rows(base_date, count=3)
+    high_low_alignment_rows = build_high_low_specific_alignment_rows(
+        recent_futures_spot_ranges,
+        large_trader_fut_history_rows,
+        large_trader_opt_history_rows,
+        foreign_futures_history_rows,
+        institution_option_history_rows,
+    )
 
     long_top10_add_qty = large_trader["longTop10Qty"] - large_trader["longTop5Qty"]
     short_top10_add_qty = large_trader["shortTop10Qty"] - large_trader["shortTop5Qty"]
@@ -2983,6 +3221,31 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         "changeOverview": {
             **futures_delta_overview,
             "urgentHighlights": important_dates["urgentHighlights"],
+            "recentRangeHighlights": [
+                (
+                    f"{row['date']}：台指期近月 {row['contract']}，"
+                    f"期貨 高 {format_market_price(row['futuresHigh'])} / 低 {format_market_price(row['futuresLow'])}；"
+                    f"現貨 高 {format_market_price(row['spotHigh'])} / 低 {format_market_price(row['spotLow'])}。"
+                )
+                for row in recent_futures_spot_ranges
+            ],
+            "recentRangeRows": recent_futures_spot_ranges,
+            "highLowAlignmentHighlights": [
+                (
+                    f"{row['date']} 高點對照：期貨高 {format_market_price(row['futuresHigh'])}，"
+                    f"期貨前十大特定法人賣方單日 {format_signed(row['futuresSellTop10SpecificDay'])}，"
+                    f"選擇權前十大特定法人賣方單日 {format_signed(row['optionSellTop10SpecificDay'])}，"
+                    f"外資選擇權賣方單日 {format_signed(row['foreignOptionSellDay'])}，"
+                    f"外資期貨空方單日 {format_signed(row['foreignFuturesSellDay'])}；"
+                    f"低點對照：期貨低 {format_market_price(row['futuresLow'])}，"
+                    f"期貨前十大特定法人買方單日 {format_signed(row['futuresBuyTop10SpecificDay'])}，"
+                    f"選擇權前十大特定法人買方單日 {format_signed(row['optionBuyTop10SpecificDay'])}，"
+                    f"外資選擇權買方單日 {format_signed(row['foreignOptionBuyDay'])}，"
+                    f"外資期貨多方單日 {format_signed(row['foreignFuturesBuyDay'])}。"
+                )
+                for row in high_low_alignment_rows
+            ],
+            "highLowAlignmentRows": high_low_alignment_rows,
             "optionHighlights": option_delta_overview["highlights"],
             "optionItems": option_delta_overview["items"],
             "optionCycleStartDate": option_delta_overview["cycleStartDate"],
@@ -3355,29 +3618,30 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         short5_cycle = None if not monthly_cycle or monthly_cycle["shortTop5SpecificQty"] is None else monthly_large_summary["shortTop5SpecificQty"] - monthly_cycle["shortTop5SpecificQty"]
         short10_cycle = None if not monthly_cycle or monthly_cycle["shortTop10SpecificQty"] is None else monthly_large_summary["shortTop10SpecificQty"] - monthly_cycle["shortTop10SpecificQty"]
         report["changeOverview"]["largeTraderOverviewHighlights"] = [
-            f"月契約特定法人買方：前五大 {specific_value_text(monthly_large_summary['longTop5SpecificQty'])} 口，單日 {format_signed(long5_day)}；前十大 {specific_value_text(monthly_large_summary['longTop10SpecificQty'])} 口，單日 {format_signed(long10_day)}。",
-            f"月契約特定法人賣方：前五大 {specific_value_text(monthly_large_summary['shortTop5SpecificQty'])} 口，單日 {format_signed(short5_day)}；前十大 {specific_value_text(monthly_large_summary['shortTop10SpecificQty'])} 口，單日 {format_signed(short10_day)}。",
-            f"月契約特定法人累積：買方前五大 {format_signed(long5_cycle)}、買方前十大 {format_signed(long10_cycle)}；賣方前五大 {format_signed(short5_cycle)}、賣方前十大 {format_signed(short10_cycle)}，基準日 {monthly_cycle_start_date}。",
+            f"月契約特定法人買方：前五大 {format_current_day_cycle_summary(monthly_large_summary['longTop5SpecificQty'], long5_day, long5_cycle, monthly_cycle_start_date)}；"
+            f"前十大 {format_current_day_cycle_summary(monthly_large_summary['longTop10SpecificQty'], long10_day, long10_cycle, monthly_cycle_start_date)}。",
+            f"月契約特定法人賣方：前五大 {format_current_day_cycle_summary(monthly_large_summary['shortTop5SpecificQty'], short5_day, short5_cycle, monthly_cycle_start_date)}；"
+            f"前十大 {format_current_day_cycle_summary(monthly_large_summary['shortTop10SpecificQty'], short10_day, short10_cycle, monthly_cycle_start_date)}。",
         ]
     else:
         report["changeOverview"]["largeTraderOverviewHighlights"] = [
             item for item in report["changeOverview"]["largeTraderSummary"]
             if "月契約" in item or not item.startswith("週契約")
         ][:2] or report["changeOverview"]["largeTraderSummary"][:2]
-    monthly_option_specific = [
+    overview_option_specific = [
         row for row in option_specific_entries
-        if row["card"]["label"].startswith("月契約")
+        if row["card"]["label"].startswith("月契約") or row["card"]["label"].startswith("週契約")
     ]
     option_specific_overview = []
-    for item in monthly_option_specific:
+    for item in overview_option_specific:
         card = item["card"]
+        label = card["label"].replace("特定法人", "").strip()
         option_specific_overview.append(
-            f"{card['label']}買方：前五大 {card['longTop5Qty']} 口，單日 {card['longTop5Day']}、累積 {card['longTop5Cycle']}；"
-            f"前十大 {card['longTop10Qty']} 口，單日 {card['longTop10Day']}、累積 {card['longTop10Cycle']}。"
-        )
-        option_specific_overview.append(
-            f"{card['label']}賣方：前五大 {card['shortTop5Qty']} 口，單日 {card['shortTop5Day']}、累積 {card['shortTop5Cycle']}；"
-            f"前十大 {card['shortTop10Qty']} 口，單日 {card['shortTop10Day']}、累積 {card['shortTop10Cycle']}。"
+            f"{label}特定法人："
+            f"買方前五大 {format_current_day_cycle_summary(card['longTop5Qty'], card['longTop5Day'], card['longTop5Cycle'], card['cycleStartDate'])}；"
+            f"買方前十大 {format_current_day_cycle_summary(card['longTop10Qty'], card['longTop10Day'], card['longTop10Cycle'], card['cycleStartDate'])}；"
+            f"賣方前五大 {format_current_day_cycle_summary(card['shortTop5Qty'], card['shortTop5Day'], card['shortTop5Cycle'], card['cycleStartDate'])}；"
+            f"賣方前十大 {format_current_day_cycle_summary(card['shortTop10Qty'], card['shortTop10Day'], card['shortTop10Cycle'], card['cycleStartDate'])}。"
         )
     report["changeOverview"]["optionOverviewHighlights"] = report["tables"]["D"]["highlights"][:3] + option_specific_overview
 

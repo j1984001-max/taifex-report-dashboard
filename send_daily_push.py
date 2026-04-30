@@ -93,6 +93,84 @@ def decorate_telegram_text(text: str) -> str:
     return text
 
 
+def format_futures_highlight_lines(items: list[str]) -> list[str]:
+    def with_period(text: str) -> str:
+        stripped = text.strip()
+        return stripped if stripped.endswith("。") else f"{stripped}。"
+
+    lines: list[str] = []
+    for item in items:
+        if not item.startswith("臺股期貨："):
+            lines.append(f"- {item}")
+            continue
+
+        body = item.removeprefix("臺股期貨：")
+        segments = [segment.strip() for segment in body.split("；") if segment.strip()]
+        if not segments:
+            lines.append(f"- {item}")
+            continue
+
+        lines.append(f"- 臺股期貨總覽：{with_period(segments[0])}")
+        current_label = "總覽"
+        for segment in segments[1:]:
+            if "：" in segment:
+                label, detail = segment.split("：", 1)
+                current_label = label.strip()
+                if current_label.startswith("自 ") and "起累積" in current_label:
+                    lines.append(f"  總累積：{with_period(detail)}")
+                else:
+                    lines.append(f"  {current_label}：{with_period(detail)}")
+            elif segment.startswith("自 ") and "起累積" in segment:
+                lines.append(f"  總累積：{with_period(segment)}")
+            elif segment.startswith("累積"):
+                lines.append(f"  {current_label}累積：{with_period(segment)}")
+            else:
+                lines.append(f"  {with_period(segment)}")
+    return lines
+
+
+def format_option_highlight_lines(items: list[str]) -> list[str]:
+    lines: list[str] = []
+    for item in items:
+        if "特定法人：" not in item:
+            if "；" in item:
+                parts = [part.strip() for part in item.split("；") if part.strip()]
+                for idx, part in enumerate(parts):
+                    prefix = "- " if idx == 0 else "  "
+                    if not part.endswith("。"):
+                        part = f"{part}。"
+                    lines.append(f"{prefix}{part}")
+            else:
+                lines.append(f"- {item}")
+            continue
+
+        label, detail = item.split("特定法人：", 1)
+        lines.append(f"- {label.strip()}特定法人")
+        parts = [part.strip() for part in detail.split("；") if part.strip()]
+        for part in parts:
+            if not part.endswith("。"):
+                part = f"{part}。"
+            lines.append(f"  {part}")
+    return lines
+
+
+def format_alignment_highlight_lines(items: list[str]) -> list[str]:
+    lines: list[str] = []
+    for item in items:
+        if "；低點對照：" not in item:
+            lines.append(f"- {item}")
+            continue
+        head, low = item.split("；低點對照：", 1)
+        if " 高點對照：" in head:
+            date_text, high = head.split(" 高點對照：", 1)
+            lines.append(f"- {date_text}")
+            lines.append(f"  高點對照：{high.strip()}。")
+            lines.append(f"  低點對照：{low.strip()}")
+        else:
+            lines.append(f"- {item}")
+    return lines
+
+
 def send_telegram_message(bot_token: str, chat_id: str, text: str) -> dict[str, object]:
     payload = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
     request = urllib.request.Request(
@@ -248,10 +326,20 @@ def build_quick_overview(report: dict[str, object]) -> str:
         lines.extend(["", "三個營業日內重要日期"])
         lines.extend(f"- {item}" for item in overview["urgentHighlights"])
 
+    recent_range_highlights = overview.get("recentRangeHighlights") or []
+    if recent_range_highlights:
+        lines.extend(["", "最近三天期貨 / 現貨指數高低點"])
+        lines.extend(f"- {item}" for item in recent_range_highlights)
+
+    alignment_highlights = overview.get("highLowAlignmentHighlights") or []
+    if alignment_highlights:
+        lines.extend(["", "高低點 x 前十大特定法人單日增減"])
+        lines.extend(format_alignment_highlight_lines(alignment_highlights))
+
     futures_highlights = overview.get("futuresOverviewHighlights") or overview.get("highlights") or []
     if futures_highlights:
         lines.extend(["", "期貨差異變動速覽"])
-        lines.extend(f"- {item}" for item in futures_highlights)
+        lines.extend(format_futures_highlight_lines(futures_highlights))
 
     large_highlights = overview.get("largeTraderOverviewHighlights") or overview.get("largeTraderSummary") or []
     if large_highlights:
@@ -261,7 +349,7 @@ def build_quick_overview(report: dict[str, object]) -> str:
     option_highlights = overview.get("optionOverviewHighlights") or overview.get("optionHighlights") or []
     if option_highlights:
         lines.extend(["", "選擇權分契約速覽"])
-        lines.extend(f"- {item}" for item in option_highlights)
+        lines.extend(format_option_highlight_lines(option_highlights))
 
     prediction = overview.get("prediction") or {}
     if prediction:
