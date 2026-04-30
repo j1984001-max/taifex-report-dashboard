@@ -470,10 +470,12 @@ def main() -> None:
 
     token = load_telegram_token()
     quick_overview = build_quick_overview(report)
+    quick_messages = split_telegram_text(quick_overview)
     full_messages = split_telegram_text(decorate_telegram_text(report["telegram"]))
 
     results = []
-    results.append(send_telegram_message(token, args.chat_id, quick_overview))
+    for message in quick_messages:
+        results.append(send_telegram_message(token, args.chat_id, message))
 
     # Attach C/D screenshots right after quick overview.
     shots = capture_report_screenshots(report["meta"]["date"])
