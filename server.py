@@ -3293,17 +3293,17 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
             "highLowAlignmentHighlights": [
                 (
                     f"{row['date']} 高點對照：期貨高 {format_market_price(row['futuresHigh'])}，"
-                    f"期貨前十大特定法人賣方單日 {format_signed(row['futuresSellTop10SpecificDay'])}，"
-                    f"選擇權前十大特定法人賣方單日 {format_signed(row['optionSellTop10SpecificDay'])}，"
-                    f"外資選擇權賣方單日 {format_signed(row['foreignOptionSellDay'])}，"
-                    f"外資期貨空方單日 {format_signed(row['foreignFuturesSellDay'])}，"
-                    f"空方總和 {format_signed(row['highPointShortTotal'])}（{row['highPointShortLabel']}）；"
+                    f"空方合計單日 {format_signed(row['highPointShortTotal'])}（{row['highPointShortLabel']}）；"
+                    f"其中特定法人賣方前十大 {format_signed(row['futuresSellTop10SpecificDay'])}，"
+                    f"選擇權前十大特定法人賣方 {format_signed(row['optionSellTop10SpecificDay'])}，"
+                    f"外資選擇權賣方 {format_signed(row['foreignOptionSellDay'])}，"
+                    f"外資期貨空方 {format_signed(row['foreignFuturesSellDay'])}；"
                     f"低點對照：期貨低 {format_market_price(row['futuresLow'])}，"
-                    f"期貨前十大特定法人買方單日 {format_signed(row['futuresBuyTop10SpecificDay'])}，"
-                    f"選擇權前十大特定法人買方單日 {format_signed(row['optionBuyTop10SpecificDay'])}，"
-                    f"外資選擇權買方單日 {format_signed(row['foreignOptionBuyDay'])}，"
-                    f"外資期貨多方單日 {format_signed(row['foreignFuturesBuyDay'])}，"
-                    f"多方總和 {format_signed(row['lowPointLongTotal'])}（{row['lowPointLongLabel']}）。"
+                    f"多方合計單日 {format_signed(row['lowPointLongTotal'])}（{row['lowPointLongLabel']}）；"
+                    f"其中特定法人買方前十大 {format_signed(row['futuresBuyTop10SpecificDay'])}，"
+                    f"選擇權前十大特定法人買方 {format_signed(row['optionBuyTop10SpecificDay'])}，"
+                    f"外資選擇權買方 {format_signed(row['foreignOptionBuyDay'])}，"
+                    f"外資期貨多方 {format_signed(row['foreignFuturesBuyDay'])}。"
                 )
                 for row in high_low_alignment_rows
             ],

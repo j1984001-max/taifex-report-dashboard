@@ -983,30 +983,28 @@
                                 <div class="font-black text-lg mb-3">${escapeHtml(row.date)}</div>
                                 <div class="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900 dark:bg-rose-950/20">
                                     <div class="font-bold text-rose-700 dark:text-rose-300 mb-2">高點觀察</div>
-                                    <div class="text-sm leading-7">空方總和：<span class="${signedClass(row.highPointShortTotal)}">${formatSigned(row.highPointShortTotal)}</span></div>
+                                    <div class="text-sm leading-7">空方合計單日：<span class="${signedClass(row.highPointShortTotal)}">${formatSigned(row.highPointShortTotal)}</span></div>
                                     <div class="text-sm leading-7 font-semibold">${escapeHtml(row.highPointShortLabel || "缺資料")}</div>
-                                    <div class="text-sm leading-7">期貨特定法人淨額單日：<span class="${signedClass(row.futuresSpecificNetDay)}">${formatSigned(row.futuresSpecificNetDay)}</span></div>
-                                    <div class="text-sm leading-7">外資淨額單日：選擇權 <span class="${signedClass(row.foreignOptionNetDay)}">${formatSigned(row.foreignOptionNetDay)}</span> / 期貨 <span class="${signedClass(row.foreignFuturesNetDay)}">${formatSigned(row.foreignFuturesNetDay)}</span></div>
                                     <div class="text-sm leading-7">期貨高點：<span class="font-semibold">${formatNumber(row.futuresHigh)}</span></div>
-                                    <div class="text-sm leading-7">特定法人賣方前十大單日：<span class="${signedClass(row.futuresSellTop10SpecificDay)}">${formatSigned(row.futuresSellTop10SpecificDay)}</span></div>
-                                    <div class="text-sm leading-7">外資選擇權賣方單日：<span class="${signedClass(row.foreignOptionSellDay)}">${formatSigned(row.foreignOptionSellDay)}</span></div>
-                                    <div class="text-sm leading-7">外資期貨空方單日：<span class="${signedClass(row.foreignFuturesSellDay)}">${formatSigned(row.foreignFuturesSellDay)}</span></div>
+                                    <div class="text-sm leading-7">特定法人賣方前十大：<span class="${signedClass(row.futuresSellTop10SpecificDay)}">${formatSigned(row.futuresSellTop10SpecificDay)}</span></div>
+                                    <div class="text-sm leading-7">選擇權前十大特定法人賣方：<span class="${signedClass(row.optionSellTop10SpecificDay)}">${formatSigned(row.optionSellTop10SpecificDay)}</span></div>
+                                    <div class="text-sm leading-7">外資選擇權賣方：<span class="${signedClass(row.foreignOptionSellDay)}">${formatSigned(row.foreignOptionSellDay)}</span></div>
+                                    <div class="text-sm leading-7">外資期貨空方：<span class="${signedClass(row.foreignFuturesSellDay)}">${formatSigned(row.foreignFuturesSellDay)}</span></div>
                                 </div>
                                 <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3 mt-3 dark:border-emerald-900 dark:bg-emerald-950/20">
                                     <div class="font-bold text-emerald-700 dark:text-emerald-300 mb-2">低點觀察</div>
-                                    <div class="text-sm leading-7">多方總和：<span class="${signedClass(row.lowPointLongTotal)}">${formatSigned(row.lowPointLongTotal)}</span></div>
+                                    <div class="text-sm leading-7">多方合計單日：<span class="${signedClass(row.lowPointLongTotal)}">${formatSigned(row.lowPointLongTotal)}</span></div>
                                     <div class="text-sm leading-7 font-semibold">${escapeHtml(row.lowPointLongLabel || "缺資料")}</div>
-                                    <div class="text-sm leading-7">選擇權特定法人淨額單日：<span class="${signedClass(row.optionSpecificNetDay)}">${formatSigned(row.optionSpecificNetDay)}</span></div>
-                                    <div class="text-sm leading-7">外資淨額單日：選擇權 <span class="${signedClass(row.foreignOptionNetDay)}">${formatSigned(row.foreignOptionNetDay)}</span> / 期貨 <span class="${signedClass(row.foreignFuturesNetDay)}">${formatSigned(row.foreignFuturesNetDay)}</span></div>
                                     <div class="text-sm leading-7">期貨低點：<span class="font-semibold">${formatNumber(row.futuresLow)}</span></div>
-                                    <div class="text-sm leading-7">特定法人買方前十大單日：<span class="${signedClass(row.futuresBuyTop10SpecificDay)}">${formatSigned(row.futuresBuyTop10SpecificDay)}</span></div>
-                                    <div class="text-sm leading-7">外資選擇權買方單日：<span class="${signedClass(row.foreignOptionBuyDay)}">${formatSigned(row.foreignOptionBuyDay)}</span></div>
-                                    <div class="text-sm leading-7">外資期貨多方單日：<span class="${signedClass(row.foreignFuturesBuyDay)}">${formatSigned(row.foreignFuturesBuyDay)}</span></div>
+                                    <div class="text-sm leading-7">特定法人買方前十大：<span class="${signedClass(row.futuresBuyTop10SpecificDay)}">${formatSigned(row.futuresBuyTop10SpecificDay)}</span></div>
+                                    <div class="text-sm leading-7">選擇權前十大特定法人買方：<span class="${signedClass(row.optionBuyTop10SpecificDay)}">${formatSigned(row.optionBuyTop10SpecificDay)}</span></div>
+                                    <div class="text-sm leading-7">外資選擇權買方：<span class="${signedClass(row.foreignOptionBuyDay)}">${formatSigned(row.foreignOptionBuyDay)}</span></div>
+                                    <div class="text-sm leading-7">外資期貨多方：<span class="${signedClass(row.foreignFuturesBuyDay)}">${formatSigned(row.foreignFuturesBuyDay)}</span></div>
                                 </div>
                             </div>
                         `).join("")}
                     </div>
-                    <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">口徑：特定法人採月契約前十大單日買方 / 賣方變動；外資選擇權採買權與賣權合計後的買方 / 賣方單日變動；外資期貨採臺股期貨單日多方 / 空方變動。若要對照玩股網「大額多空淨額」頁，請優先看本卡新增的「淨額單日」。</div>
+                    <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">口徑：這張卡只分開看高點的空方單日增減、低點的多方單日增減。特定法人採月契約前十大；外資選擇權採買權與賣權合計後的買方 / 賣方單日變動；外資期貨採臺股期貨單日多方 / 空方變動。</div>
                 </div>
             `;
         }
