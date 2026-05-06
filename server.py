@@ -216,6 +216,7 @@ def load_snapshot(report_date: str, report_url: str) -> tuple[dict[str, Any], by
     try:
         report = json.loads(json_path.read_text(encoding="utf-8"))
         report["meta"]["reportUrl"] = report_url
+        normalize_high_low_alignment(report)
         pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
         return report, pdf_data
     except Exception:
@@ -245,6 +246,7 @@ def load_cached_report(key: str, ttl: int) -> tuple[dict[str, Any], bytes | None
 
     try:
         report = json.loads(json_path.read_text(encoding="utf-8"))
+        normalize_high_low_alignment(report)
         pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
     except Exception:
         return None
@@ -1301,37 +1303,59 @@ def build_high_low_specific_alignment_rows(
     for row in opt_history_rows:
         if row.get("contractType") != "monthly":
             continue
+        option_side = row.get("optionSide")
         entry = opt_map.setdefault(
             row["date"],
             {
-                "optionBuyTop10SpecificDay": 0,
-                "optionSellTop10SpecificDay": 0,
-                "optionBuyTop10SpecificQty": 0,
-                "optionSellTop10SpecificQty": 0,
+                "callBuyTop10SpecificDay": 0,
+                "callSellTop10SpecificDay": 0,
+                "putBuyTop10SpecificDay": 0,
+                "putSellTop10SpecificDay": 0,
+                "callBuyTop10SpecificQty": 0,
+                "callSellTop10SpecificQty": 0,
+                "putBuyTop10SpecificQty": 0,
+                "putSellTop10SpecificQty": 0,
             },
         )
-        entry["optionBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
-        entry["optionSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
-        entry["optionBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
-        entry["optionSellTop10SpecificQty"] += int(row.get("shortTop10SpecificQty") or 0)
+        if option_side == "call":
+            entry["callBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
+            entry["callSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
+            entry["callBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
+            entry["callSellTop10SpecificQty"] += int(row.get("shortTop10SpecificQty") or 0)
+        elif option_side == "put":
+            entry["putBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
+            entry["putSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
+            entry["putBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
+            entry["putSellTop10SpecificQty"] += int(row.get("shortTop10SpecificQty") or 0)
 
     foreign_opt_map: dict[str, dict[str, Any]] = {}
     for row in institution_option_history_rows:
         if row.get("institution") != "外資":
             continue
+        option_side = row.get("optionSide")
         entry = foreign_opt_map.setdefault(
             row["date"],
             {
-                "foreignOptionBuyDay": 0,
-                "foreignOptionSellDay": 0,
-                "foreignOptionBuyQty": 0,
-                "foreignOptionSellQty": 0,
+                "foreignCallBuyDay": 0,
+                "foreignCallSellDay": 0,
+                "foreignPutBuyDay": 0,
+                "foreignPutSellDay": 0,
+                "foreignCallBuyQty": 0,
+                "foreignCallSellQty": 0,
+                "foreignPutBuyQty": 0,
+                "foreignPutSellQty": 0,
             },
         )
-        entry["foreignOptionBuyDay"] += int(row.get("oiLongQtyDay") or 0)
-        entry["foreignOptionSellDay"] += int(row.get("oiShortQtyDay") or 0)
-        entry["foreignOptionBuyQty"] += int(row.get("oiLongQty") or 0)
-        entry["foreignOptionSellQty"] += int(row.get("oiShortQty") or 0)
+        if option_side == "call":
+            entry["foreignCallBuyDay"] += int(row.get("oiLongQtyDay") or 0)
+            entry["foreignCallSellDay"] += int(row.get("oiShortQtyDay") or 0)
+            entry["foreignCallBuyQty"] += int(row.get("oiLongQty") or 0)
+            entry["foreignCallSellQty"] += int(row.get("oiShortQty") or 0)
+        elif option_side == "put":
+            entry["foreignPutBuyDay"] += int(row.get("oiLongQtyDay") or 0)
+            entry["foreignPutSellDay"] += int(row.get("oiShortQtyDay") or 0)
+            entry["foreignPutBuyQty"] += int(row.get("oiLongQty") or 0)
+            entry["foreignPutSellQty"] += int(row.get("oiShortQty") or 0)
 
     rows: list[dict[str, Any]] = []
     for row in range_rows:
@@ -1343,8 +1367,6 @@ def build_high_low_specific_alignment_rows(
             value or 0
             for value in [
                 fut.get("shortTop10SpecificDay"),
-                opt.get("optionSellTop10SpecificDay"),
-                foreign_opt.get("foreignOptionSellDay"),
                 foreign_fut.get("foreignFuturesSellDay"),
             ]
         )
@@ -1352,8 +1374,6 @@ def build_high_low_specific_alignment_rows(
             value or 0
             for value in [
                 fut.get("longTop10SpecificDay"),
-                opt.get("optionBuyTop10SpecificDay"),
-                foreign_opt.get("foreignOptionBuyDay"),
                 foreign_fut.get("foreignFuturesBuyDay"),
             ]
         )
@@ -1364,33 +1384,170 @@ def build_high_low_specific_alignment_rows(
                 "futuresSellTop10SpecificDay": fut.get("shortTop10SpecificDay"),
                 "futuresBuyTop10SpecificQty": fut.get("longTop10SpecificQty"),
                 "futuresSellTop10SpecificQty": fut.get("shortTop10SpecificQty"),
-                "optionBuyTop10SpecificDay": opt.get("optionBuyTop10SpecificDay"),
-                "optionSellTop10SpecificDay": opt.get("optionSellTop10SpecificDay"),
-                "optionBuyTop10SpecificQty": opt.get("optionBuyTop10SpecificQty"),
-                "optionSellTop10SpecificQty": opt.get("optionSellTop10SpecificQty"),
+                "callBuyTop10SpecificDay": opt.get("callBuyTop10SpecificDay"),
+                "callSellTop10SpecificDay": opt.get("callSellTop10SpecificDay"),
+                "putBuyTop10SpecificDay": opt.get("putBuyTop10SpecificDay"),
+                "putSellTop10SpecificDay": opt.get("putSellTop10SpecificDay"),
+                "callBuyTop10SpecificQty": opt.get("callBuyTop10SpecificQty"),
+                "callSellTop10SpecificQty": opt.get("callSellTop10SpecificQty"),
+                "putBuyTop10SpecificQty": opt.get("putBuyTop10SpecificQty"),
+                "putSellTop10SpecificQty": opt.get("putSellTop10SpecificQty"),
                 "foreignFuturesBuyDay": foreign_fut.get("foreignFuturesBuyDay"),
                 "foreignFuturesSellDay": foreign_fut.get("foreignFuturesSellDay"),
-                "foreignOptionBuyDay": foreign_opt.get("foreignOptionBuyDay"),
-                "foreignOptionSellDay": foreign_opt.get("foreignOptionSellDay"),
+                "foreignCallBuyDay": foreign_opt.get("foreignCallBuyDay"),
+                "foreignCallSellDay": foreign_opt.get("foreignCallSellDay"),
+                "foreignPutBuyDay": foreign_opt.get("foreignPutBuyDay"),
+                "foreignPutSellDay": foreign_opt.get("foreignPutSellDay"),
                 "futuresSpecificNetDay": (
                     None
                     if fut.get("longTop10SpecificDay") is None or fut.get("shortTop10SpecificDay") is None
                     else int(fut.get("longTop10SpecificDay") or 0) - int(fut.get("shortTop10SpecificDay") or 0)
                 ),
-                "optionSpecificNetDay": int(opt.get("optionBuyTop10SpecificDay") or 0) - int(opt.get("optionSellTop10SpecificDay") or 0),
-                "foreignOptionNetDay": int(foreign_opt.get("foreignOptionBuyDay") or 0) - int(foreign_opt.get("foreignOptionSellDay") or 0),
+                "callSpecificNetDay": int(opt.get("callBuyTop10SpecificDay") or 0) - int(opt.get("callSellTop10SpecificDay") or 0),
+                "putSpecificNetDay": int(opt.get("putBuyTop10SpecificDay") or 0) - int(opt.get("putSellTop10SpecificDay") or 0),
+                "foreignCallNetDay": int(foreign_opt.get("foreignCallBuyDay") or 0) - int(foreign_opt.get("foreignCallSellDay") or 0),
+                "foreignPutNetDay": int(foreign_opt.get("foreignPutBuyDay") or 0) - int(foreign_opt.get("foreignPutSellDay") or 0),
                 "foreignFuturesNetDay": (
                     None
                     if foreign_fut.get("foreignFuturesBuyDay") is None or foreign_fut.get("foreignFuturesSellDay") is None
                     else int(foreign_fut.get("foreignFuturesBuyDay") or 0) - int(foreign_fut.get("foreignFuturesSellDay") or 0)
                 ),
-                "highPointShortTotal": short_total,
-                "lowPointLongTotal": long_total,
-                "highPointShortLabel": classify_pressure_strength(short_total, side="short"),
-                "lowPointLongLabel": classify_pressure_strength(long_total, side="long"),
+                "highPointFuturesShortTotal": short_total,
+                "lowPointFuturesLongTotal": long_total,
+                "highPointFuturesShortLabel": classify_pressure_strength(short_total, side="short"),
+                "lowPointFuturesLongLabel": classify_pressure_strength(long_total, side="long"),
             }
         )
     return rows
+
+
+def build_high_low_alignment_highlights(rows: list[dict[str, Any]]) -> list[str]:
+    return [
+        (
+            f"{row['date']} 高點對照：期貨高 {format_market_price(row['futuresHigh'])}，"
+            f"期貨空方合計單日 {format_signed(row['highPointFuturesShortTotal'])}（{row['highPointFuturesShortLabel']}）；"
+            f"其中特定法人賣方前十大 {format_signed(row['futuresSellTop10SpecificDay'])}，"
+            f"外資期貨空方 {format_signed(row['foreignFuturesSellDay'])}；"
+            f"選擇權拆解：特定法人買權賣方 {format_signed(row['callSellTop10SpecificDay'])}、賣權買方 {format_signed(row['putBuyTop10SpecificDay'])}；"
+            f"外資買權賣方 {format_signed(row['foreignCallSellDay'])}、賣權買方 {format_signed(row['foreignPutBuyDay'])}；"
+            f"低點對照：期貨低 {format_market_price(row['futuresLow'])}，"
+            f"期貨多方合計單日 {format_signed(row['lowPointFuturesLongTotal'])}（{row['lowPointFuturesLongLabel']}）；"
+            f"其中特定法人買方前十大 {format_signed(row['futuresBuyTop10SpecificDay'])}，"
+            f"外資期貨多方 {format_signed(row['foreignFuturesBuyDay'])}；"
+            f"選擇權拆解：特定法人買權買方 {format_signed(row['callBuyTop10SpecificDay'])}、賣權賣方 {format_signed(row['putSellTop10SpecificDay'])}；"
+            f"外資買權買方 {format_signed(row['foreignCallBuyDay'])}、賣權賣方 {format_signed(row['foreignPutSellDay'])}。"
+        )
+        for row in rows
+    ]
+
+
+def normalize_high_low_alignment(report: dict[str, Any]) -> None:
+    change_overview = report.get("changeOverview") or {}
+    table_d = (report.get("tables") or {}).get("D") or {}
+    existing_rows = change_overview.get("highLowAlignmentRows") or []
+    range_rows = change_overview.get("recentRangeRows") or existing_rows
+    if not range_rows:
+        return
+
+    option_history_rows = table_d.get("largeTraderOptionHistoryRows") or []
+    institution_history_rows = table_d.get("institutionHistoryRows") or []
+    existing_map = {row.get("date"): row for row in existing_rows if row.get("date")}
+
+    opt_map: dict[str, dict[str, Any]] = {}
+    for row in option_history_rows:
+        if row.get("contractType") != "monthly":
+            continue
+        option_side = row.get("optionSide")
+        entry = opt_map.setdefault(
+            row["date"],
+            {
+                "callBuyTop10SpecificDay": 0,
+                "callSellTop10SpecificDay": 0,
+                "putBuyTop10SpecificDay": 0,
+                "putSellTop10SpecificDay": 0,
+                "callBuyTop10SpecificQty": 0,
+                "callSellTop10SpecificQty": 0,
+                "putBuyTop10SpecificQty": 0,
+                "putSellTop10SpecificQty": 0,
+            },
+        )
+        if option_side == "call":
+            entry["callBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
+            entry["callSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
+            entry["callBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
+            entry["callSellTop10SpecificQty"] += int(row.get("shortTop10SpecificQty") or 0)
+        elif option_side == "put":
+            entry["putBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
+            entry["putSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
+            entry["putBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
+            entry["putSellTop10SpecificQty"] += int(row.get("shortTop10SpecificQty") or 0)
+
+    foreign_opt_map: dict[str, dict[str, Any]] = {}
+    for row in institution_history_rows:
+        if row.get("institution") != "外資":
+            continue
+        option_side = row.get("optionSide")
+        entry = foreign_opt_map.setdefault(
+            row["date"],
+            {
+                "foreignCallBuyDay": 0,
+                "foreignCallSellDay": 0,
+                "foreignPutBuyDay": 0,
+                "foreignPutSellDay": 0,
+                "foreignCallBuyQty": 0,
+                "foreignCallSellQty": 0,
+                "foreignPutBuyQty": 0,
+                "foreignPutSellQty": 0,
+            },
+        )
+        if option_side == "call":
+            entry["foreignCallBuyDay"] += int(row.get("oiLongQtyDay") or 0)
+            entry["foreignCallSellDay"] += int(row.get("oiShortQtyDay") or 0)
+            entry["foreignCallBuyQty"] += int(row.get("oiLongQty") or 0)
+            entry["foreignCallSellQty"] += int(row.get("oiShortQty") or 0)
+        elif option_side == "put":
+            entry["foreignPutBuyDay"] += int(row.get("oiLongQtyDay") or 0)
+            entry["foreignPutSellDay"] += int(row.get("oiShortQtyDay") or 0)
+            entry["foreignPutBuyQty"] += int(row.get("oiLongQty") or 0)
+            entry["foreignPutSellQty"] += int(row.get("oiShortQty") or 0)
+
+    normalized_rows: list[dict[str, Any]] = []
+    for base in range_rows:
+        date_text = base.get("date")
+        previous = existing_map.get(date_text, {})
+        opt = opt_map.get(date_text, {})
+        foreign_opt = foreign_opt_map.get(date_text, {})
+        fut_sell = previous.get("futuresSellTop10SpecificDay")
+        fut_buy = previous.get("futuresBuyTop10SpecificDay")
+        foreign_fut_sell = previous.get("foreignFuturesSellDay")
+        foreign_fut_buy = previous.get("foreignFuturesBuyDay")
+        short_total = sum(value or 0 for value in [fut_sell, foreign_fut_sell])
+        long_total = sum(value or 0 for value in [fut_buy, foreign_fut_buy])
+        normalized_rows.append(
+            {
+                **previous,
+                **base,
+                "callBuyTop10SpecificDay": opt.get("callBuyTop10SpecificDay", 0),
+                "callSellTop10SpecificDay": opt.get("callSellTop10SpecificDay", 0),
+                "putBuyTop10SpecificDay": opt.get("putBuyTop10SpecificDay", 0),
+                "putSellTop10SpecificDay": opt.get("putSellTop10SpecificDay", 0),
+                "callBuyTop10SpecificQty": opt.get("callBuyTop10SpecificQty", 0),
+                "callSellTop10SpecificQty": opt.get("callSellTop10SpecificQty", 0),
+                "putBuyTop10SpecificQty": opt.get("putBuyTop10SpecificQty", 0),
+                "putSellTop10SpecificQty": opt.get("putSellTop10SpecificQty", 0),
+                "foreignCallBuyDay": foreign_opt.get("foreignCallBuyDay", 0),
+                "foreignCallSellDay": foreign_opt.get("foreignCallSellDay", 0),
+                "foreignPutBuyDay": foreign_opt.get("foreignPutBuyDay", 0),
+                "foreignPutSellDay": foreign_opt.get("foreignPutSellDay", 0),
+                "highPointFuturesShortTotal": short_total,
+                "lowPointFuturesLongTotal": long_total,
+                "highPointFuturesShortLabel": classify_pressure_strength(short_total, side="short"),
+                "lowPointFuturesLongLabel": classify_pressure_strength(long_total, side="long"),
+            }
+        )
+
+    change_overview["highLowAlignmentRows"] = normalized_rows
+    change_overview["highLowAlignmentHighlights"] = build_high_low_alignment_highlights(normalized_rows)
 
 
 def build_large_trader_fut_history_rows(end_date: str, monthly_code: str, *, count: int = 5) -> list[dict[str, Any]]:
@@ -3290,23 +3447,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
                 for row in recent_futures_spot_ranges
             ],
             "recentRangeRows": recent_futures_spot_ranges,
-            "highLowAlignmentHighlights": [
-                (
-                    f"{row['date']} 高點對照：期貨高 {format_market_price(row['futuresHigh'])}，"
-                    f"空方合計單日 {format_signed(row['highPointShortTotal'])}（{row['highPointShortLabel']}）；"
-                    f"其中特定法人賣方前十大 {format_signed(row['futuresSellTop10SpecificDay'])}，"
-                    f"選擇權前十大特定法人賣方 {format_signed(row['optionSellTop10SpecificDay'])}，"
-                    f"外資選擇權賣方 {format_signed(row['foreignOptionSellDay'])}，"
-                    f"外資期貨空方 {format_signed(row['foreignFuturesSellDay'])}；"
-                    f"低點對照：期貨低 {format_market_price(row['futuresLow'])}，"
-                    f"多方合計單日 {format_signed(row['lowPointLongTotal'])}（{row['lowPointLongLabel']}）；"
-                    f"其中特定法人買方前十大 {format_signed(row['futuresBuyTop10SpecificDay'])}，"
-                    f"選擇權前十大特定法人買方 {format_signed(row['optionBuyTop10SpecificDay'])}，"
-                    f"外資選擇權買方 {format_signed(row['foreignOptionBuyDay'])}，"
-                    f"外資期貨多方 {format_signed(row['foreignFuturesBuyDay'])}。"
-                )
-                for row in high_low_alignment_rows
-            ],
+            "highLowAlignmentHighlights": build_high_low_alignment_highlights(high_low_alignment_rows),
             "highLowAlignmentRows": high_low_alignment_rows,
             "optionHighlights": option_delta_overview["highlights"],
             "optionItems": option_delta_overview["items"],

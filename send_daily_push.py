@@ -326,11 +326,6 @@ def build_quick_overview(report: dict[str, object]) -> str:
         lines.extend(["", "三個營業日內重要日期"])
         lines.extend(f"- {item}" for item in overview["urgentHighlights"])
 
-    recent_range_highlights = overview.get("recentRangeHighlights") or []
-    if recent_range_highlights:
-        lines.extend(["", "最近五個營業日期貨 / 現貨指數高低點"])
-        lines.extend(f"- {item}" for item in recent_range_highlights)
-
     alignment_highlights = overview.get("highLowAlignmentHighlights") or []
     if alignment_highlights:
         lines.extend(["", "高低點 x 前十大特定法人單日增減"])
@@ -366,6 +361,20 @@ def build_quick_overview(report: dict[str, object]) -> str:
     warning = build_important_date_warning(report)
     if warning:
         lines.extend(["", "重要日期提醒", warning])
+    return decorate_telegram_text("\n".join(lines))
+
+
+def build_high_low_focus_overview(report: dict[str, object], *, days: int = 3) -> str:
+    meta = report["meta"]
+    overview = report["changeOverview"]
+    alignment_highlights = overview.get("highLowAlignmentHighlights") or []
+    lines = [
+        f"{meta['date']} 高低點對照速覽",
+        f"完整網頁：{meta['reportUrl']}",
+    ]
+    if alignment_highlights:
+        lines.extend(["", "高低點 x 前十大特定法人單日增減"])
+        lines.extend(format_alignment_highlight_lines(alignment_highlights[:days]))
     return decorate_telegram_text("\n".join(lines))
 
 
@@ -469,11 +478,15 @@ def main() -> None:
     save_snapshot(report["meta"]["date"], report, pdf_data)
 
     token = load_telegram_token()
+    high_low_focus = build_high_low_focus_overview(report)
+    high_low_messages = split_telegram_text(high_low_focus)
     quick_overview = build_quick_overview(report)
     quick_messages = split_telegram_text(quick_overview)
     full_messages = split_telegram_text(decorate_telegram_text(report["telegram"]))
 
     results = []
+    for message in high_low_messages:
+        results.append(send_telegram_message(token, args.chat_id, message))
     for message in quick_messages:
         results.append(send_telegram_message(token, args.chat_id, message))
 
