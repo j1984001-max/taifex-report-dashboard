@@ -43,7 +43,15 @@ jobs:
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
           REPORT_MAX_RETRIES: "6"
           REPORT_RETRY_DELAY_SECONDS: "300"
-        run: python3 send_daily_push.py
+        run: python3 send_daily_push.py | tee daily-push-result.json
+
+      - name: Upload daily push result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-push-result
+          path: daily-push-result.json
+          if-no-files-found: warn
 
       - name: Alert Telegram on failure
         if: failure()
