@@ -1208,6 +1208,124 @@ def fetch_business_day_series(
     return series
 
 
+def fetch_business_day_series_until(
+    end_date: str,
+    start_date: str,
+    *,
+    fetch_fn,
+    include_prior_business_day: bool = False,
+    max_lookback_days: int = 80,
+) -> list[dict[str, Any]]:
+    """Fetch business-day records from end_date back to start_date (inclusive).
+
+    When include_prior_business_day is True, also fetch one extra business day
+    before start_date so day-over-day deltas at start_date can be computed.
+    Returns list sorted by date DESC.
+    """
+    start_dt = datetime.strptime(start_date, "%Y/%m/%d")
+    lower_bound = start_dt
+    if include_prior_business_day:
+        lower_bound = datetime.strptime(previous_business_day(start_date), "%Y/%m/%d")
+
+    series: list[dict[str, Any]] = []
+    current = datetime.strptime(end_date, "%Y/%m/%d")
+    checked = 0
+    while current >= lower_bound and checked < max_lookback_days:
+        date_text = current.strftime("%Y/%m/%d")
+        try:
+            value = fetch_fn(date_text)
+            if value:
+                series.append({"date": date_text, "value": value})
+        except Exception:
+            pass
+        current -= timedelta(days=1)
+        checked += 1
+    return series
+
+
+def sum_large_trader_specific_cycle_changes(
+    end_date: str,
+    start_date: str,
+    monthly_code: str,
+) -> dict[str, int | None]:
+    series = fetch_business_day_series_until(
+        end_date,
+        start_date,
+        fetch_fn=lambda d: fetch_large_trader_for_date(d, monthly_code),
+        include_prior_business_day=True,
+    )
+    totals = {
+        "longTop5SpecificCycleSum": 0,
+        "shortTop5SpecificCycleSum": 0,
+        "longTop10SpecificCycleSum": 0,
+        "shortTop10SpecificCycleSum": 0,
+    }
+    seen = False
+    for idx, item in enumerate(series):
+        date_text = item["date"]
+        if date_text < start_date:
+            continue
+        day_rows = item["value"]
+        row = next((r for r in day_rows if r.get("contractType") == "monthly"), None)
+        prev_rows = series[idx + 1]["value"] if idx + 1 < len(series) else None
+        prev_row = next((r for r in (prev_rows or []) if r.get("contractType") == "monthly"), None)
+        if not row or not prev_row:
+            continue
+        seen = True
+        totals["longTop5SpecificCycleSum"] += int(row.get("longTop5SpecificQty") or 0) - int(prev_row.get("longTop5SpecificQty") or 0)
+        totals["shortTop5SpecificCycleSum"] += int(row.get("shortTop5SpecificQty") or 0) - int(prev_row.get("shortTop5SpecificQty") or 0)
+        totals["longTop10SpecificCycleSum"] += int(row.get("longTop10SpecificQty") or 0) - int(prev_row.get("longTop10SpecificQty") or 0)
+        totals["shortTop10SpecificCycleSum"] += int(row.get("shortTop10SpecificQty") or 0) - int(prev_row.get("shortTop10SpecificQty") or 0)
+    if not seen:
+        return {key: None for key in totals}
+    return totals
+
+
+def sum_foreign_futures_cycle_changes(
+    end_date: str,
+    start_date: str,
+) -> dict[str, int | None]:
+    series = fetch_business_day_series_until(
+        end_date,
+        start_date,
+        fetch_fn=fetch_futures_rows_for_date,
+        include_prior_business_day=True,
+    )
+    buy_total = 0
+    sell_total = 0
+    seen = False
+    for idx, item in enumerate(series):
+        date_text = item["date"]
+        if date_text < start_date:
+            continue
+        row = next(
+            (
+                r for r in item["value"]
+                if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
+            ),
+            None,
+        )
+        prev_rows = series[idx + 1]["value"] if idx + 1 < len(series) else None
+        prev_row = next(
+            (
+                r for r in (prev_rows or [])
+                if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
+            ),
+            None,
+        )
+        if not row or not prev_row:
+            continue
+        seen = True
+        buy_total += int(row.get("oiLongQty") or 0) - int(prev_row.get("oiLongQty") or 0)
+        sell_total += int(row.get("oiShortQty") or 0) - int(prev_row.get("oiShortQty") or 0)
+    if not seen:
+        return {"foreignFuturesBuyCycleSum": None, "foreignFuturesSellCycleSum": None}
+    return {
+        "foreignFuturesBuyCycleSum": buy_total,
+        "foreignFuturesSellCycleSum": sell_total,
+    }
+
+
 def build_tx_settlement_history(end_date: str, *, count: int = 5) -> dict[str, dict[str, Any]]:
     """Return {date: {settlement, change, changePct}} using TX near-month settlement."""
     series = fetch_business_day_series(end_date, count=count, fetch_fn=fetch_tx_reference_for_date)
@@ -1298,9 +1416,8 @@ def build_high_low_specific_alignment_rows(
 ) -> list[dict[str, Any]]:
     fut_map = {row["date"]: row for row in fut_history_rows if row.get("contractLabel") == "月契約"}
     foreign_fut_map = {row["date"]: row for row in foreign_futures_history_rows}
-    fut_cycle_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
-    foreign_cycle_cache: dict[str, dict[str, Any] | None] = {}
-    foreign_current_cache: dict[str, dict[str, Any] | None] = {}
+    fut_cycle_cache: dict[tuple[str, str], dict[str, int | None]] = {}
+    foreign_cycle_cache: dict[str, dict[str, int | None]] = {}
 
     opt_map: dict[str, dict[str, Any]] = {}
     for row in opt_history_rows:
@@ -1386,38 +1503,18 @@ def build_high_low_specific_alignment_rows(
         date_text = row["date"]
         cycle_start_date = monthly_cycle_start(contract) if contract else None
 
-        fut_cycle = None
+        fut_cycle_totals = None
         if contract and cycle_start_date:
             cache_key = (cycle_start_date, contract)
-            fut_cycle = fut_cycle_cache.get(cache_key)
+            fut_cycle_totals = fut_cycle_cache.get(cache_key)
             if cache_key not in fut_cycle_cache:
-                cycle_rows = fetch_large_trader_for_date(cycle_start_date, contract)
-                fut_cycle = next((r for r in cycle_rows if r.get("contractType") == "monthly"), None) if cycle_rows else None
-                fut_cycle_cache[cache_key] = fut_cycle
+                fut_cycle_totals = sum_large_trader_specific_cycle_changes(date_text, cycle_start_date, contract)
+                fut_cycle_cache[cache_key] = fut_cycle_totals
 
-        foreign_fut_cycle = foreign_cycle_cache.get(cycle_start_date or "")
+        foreign_fut_cycle_totals = foreign_cycle_cache.get(cycle_start_date or "")
         if cycle_start_date and cycle_start_date not in foreign_cycle_cache:
-            cycle_futures_rows = fetch_futures_rows_for_date(cycle_start_date)
-            foreign_fut_cycle = next(
-                (
-                    r for r in cycle_futures_rows
-                    if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
-                ),
-                None,
-            ) if cycle_futures_rows else None
-            foreign_cycle_cache[cycle_start_date] = foreign_fut_cycle
-
-        foreign_fut_current = foreign_current_cache.get(date_text)
-        if date_text not in foreign_current_cache:
-            current_futures_rows = fetch_futures_rows_for_date(date_text)
-            foreign_fut_current = next(
-                (
-                    r for r in current_futures_rows
-                    if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
-                ),
-                None,
-            ) if current_futures_rows else None
-            foreign_current_cache[date_text] = foreign_fut_current
+            foreign_fut_cycle_totals = sum_foreign_futures_cycle_changes(date_text, cycle_start_date)
+            foreign_cycle_cache[cycle_start_date] = foreign_fut_cycle_totals
 
         short_total = sum(
             value or 0
@@ -1446,24 +1543,16 @@ def build_high_low_specific_alignment_rows(
                 "futuresBuyTop10SpecificQty": fut.get("longTop10SpecificQty"),
                 "futuresSellTop10SpecificQty": fut.get("shortTop10SpecificQty"),
                 "futuresBuyTop5SpecificCycle": (
-                    None
-                    if not fut_cycle or fut.get("longTop5SpecificQty") is None or fut_cycle.get("longTop5SpecificQty") is None
-                    else int(fut.get("longTop5SpecificQty") or 0) - int(fut_cycle.get("longTop5SpecificQty") or 0)
+                    None if not fut_cycle_totals else fut_cycle_totals.get("longTop5SpecificCycleSum")
                 ),
                 "futuresSellTop5SpecificCycle": (
-                    None
-                    if not fut_cycle or fut.get("shortTop5SpecificQty") is None or fut_cycle.get("shortTop5SpecificQty") is None
-                    else int(fut.get("shortTop5SpecificQty") or 0) - int(fut_cycle.get("shortTop5SpecificQty") or 0)
+                    None if not fut_cycle_totals else fut_cycle_totals.get("shortTop5SpecificCycleSum")
                 ),
                 "futuresBuyTop10SpecificCycle": (
-                    None
-                    if not fut_cycle or fut.get("longTop10SpecificQty") is None or fut_cycle.get("longTop10SpecificQty") is None
-                    else int(fut.get("longTop10SpecificQty") or 0) - int(fut_cycle.get("longTop10SpecificQty") or 0)
+                    None if not fut_cycle_totals else fut_cycle_totals.get("longTop10SpecificCycleSum")
                 ),
                 "futuresSellTop10SpecificCycle": (
-                    None
-                    if not fut_cycle or fut.get("shortTop10SpecificQty") is None or fut_cycle.get("shortTop10SpecificQty") is None
-                    else int(fut.get("shortTop10SpecificQty") or 0) - int(fut_cycle.get("shortTop10SpecificQty") or 0)
+                    None if not fut_cycle_totals else fut_cycle_totals.get("shortTop10SpecificCycleSum")
                 ),
                 "callBuyTop5SpecificDay": opt.get("callBuyTop5SpecificDay"),
                 "callSellTop5SpecificDay": opt.get("callSellTop5SpecificDay"),
@@ -1484,14 +1573,10 @@ def build_high_low_specific_alignment_rows(
                 "foreignFuturesBuyDay": foreign_fut.get("foreignFuturesBuyDay"),
                 "foreignFuturesSellDay": foreign_fut.get("foreignFuturesSellDay"),
                 "foreignFuturesBuyCycle": (
-                    None
-                    if not foreign_fut_cycle or not foreign_fut_current or foreign_fut_cycle.get("oiLongQty") is None
-                    else int(foreign_fut_current.get("oiLongQty") or 0) - int(foreign_fut_cycle.get("oiLongQty") or 0)
+                    None if not foreign_fut_cycle_totals else foreign_fut_cycle_totals.get("foreignFuturesBuyCycleSum")
                 ),
                 "foreignFuturesSellCycle": (
-                    None
-                    if not foreign_fut_cycle or not foreign_fut_current or foreign_fut_cycle.get("oiShortQty") is None
-                    else int(foreign_fut_current.get("oiShortQty") or 0) - int(foreign_fut_cycle.get("oiShortQty") or 0)
+                    None if not foreign_fut_cycle_totals else foreign_fut_cycle_totals.get("foreignFuturesSellCycleSum")
                 ),
                 "foreignCallBuyDay": foreign_opt.get("foreignCallBuyDay"),
                 "foreignCallSellDay": foreign_opt.get("foreignCallSellDay"),
@@ -1562,9 +1647,8 @@ def normalize_high_low_alignment(report: dict[str, Any]) -> None:
         row["date"]: row for row in change_overview.get("foreignFuturesHistoryRows", [])
         if row.get("date")
     }
-    fut_cycle_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
-    foreign_cycle_cache: dict[str, dict[str, Any] | None] = {}
-    foreign_current_cache: dict[str, dict[str, Any] | None] = {}
+    fut_cycle_cache: dict[tuple[str, str], dict[str, int | None]] = {}
+    foreign_cycle_cache: dict[str, dict[str, int | None]] = {}
 
     opt_map: dict[str, dict[str, Any]] = {}
     for row in option_history_rows:
@@ -1657,38 +1741,18 @@ def normalize_high_low_alignment(report: dict[str, Any]) -> None:
         short_total = sum(value or 0 for value in [fut_sell, foreign_fut_sell])
         long_total = sum(value or 0 for value in [fut_buy, foreign_fut_buy])
 
-        fut_cycle = None
+        fut_cycle_totals = None
         if contract and cycle_start_date:
             cache_key = (cycle_start_date, contract)
-            fut_cycle = fut_cycle_cache.get(cache_key)
+            fut_cycle_totals = fut_cycle_cache.get(cache_key)
             if cache_key not in fut_cycle_cache:
-                cycle_rows = fetch_large_trader_for_date(cycle_start_date, contract)
-                fut_cycle = next((r for r in cycle_rows if r.get("contractType") == "monthly"), None) if cycle_rows else None
-                fut_cycle_cache[cache_key] = fut_cycle
+                fut_cycle_totals = sum_large_trader_specific_cycle_changes(date_text, cycle_start_date, contract)
+                fut_cycle_cache[cache_key] = fut_cycle_totals
 
-        foreign_fut_cycle = foreign_cycle_cache.get(cycle_start_date or "")
+        foreign_fut_cycle_totals = foreign_cycle_cache.get(cycle_start_date or "")
         if cycle_start_date and cycle_start_date not in foreign_cycle_cache:
-            cycle_futures_rows = fetch_futures_rows_for_date(cycle_start_date)
-            foreign_fut_cycle = next(
-                (
-                    r for r in cycle_futures_rows
-                    if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
-                ),
-                None,
-            ) if cycle_futures_rows else None
-            foreign_cycle_cache[cycle_start_date] = foreign_fut_cycle
-
-        foreign_fut_current = foreign_current_cache.get(date_text)
-        if date_text not in foreign_current_cache:
-            current_futures_rows = fetch_futures_rows_for_date(date_text)
-            foreign_fut_current = next(
-                (
-                    r for r in current_futures_rows
-                    if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
-                ),
-                None,
-            ) if current_futures_rows else None
-            foreign_current_cache[date_text] = foreign_fut_current
+            foreign_fut_cycle_totals = sum_foreign_futures_cycle_changes(date_text, cycle_start_date)
+            foreign_cycle_cache[cycle_start_date] = foreign_fut_cycle_totals
         normalized_rows.append(
             {
                 **previous,
@@ -1703,20 +1767,16 @@ def normalize_high_low_alignment(report: dict[str, Any]) -> None:
                 "futuresBuyTop10SpecificQty": fut.get("longTop10SpecificQty"),
                 "futuresSellTop10SpecificQty": fut.get("shortTop10SpecificQty"),
                 "futuresBuyTop5SpecificCycle": (
-                    None if not fut_cycle or fut.get("longTop5SpecificQty") is None or fut_cycle.get("longTop5SpecificQty") is None
-                    else int(fut.get("longTop5SpecificQty") or 0) - int(fut_cycle.get("longTop5SpecificQty") or 0)
+                    None if not fut_cycle_totals else fut_cycle_totals.get("longTop5SpecificCycleSum")
                 ),
                 "futuresSellTop5SpecificCycle": (
-                    None if not fut_cycle or fut.get("shortTop5SpecificQty") is None or fut_cycle.get("shortTop5SpecificQty") is None
-                    else int(fut.get("shortTop5SpecificQty") or 0) - int(fut_cycle.get("shortTop5SpecificQty") or 0)
+                    None if not fut_cycle_totals else fut_cycle_totals.get("shortTop5SpecificCycleSum")
                 ),
                 "futuresBuyTop10SpecificCycle": (
-                    None if not fut_cycle or fut.get("longTop10SpecificQty") is None or fut_cycle.get("longTop10SpecificQty") is None
-                    else int(fut.get("longTop10SpecificQty") or 0) - int(fut_cycle.get("longTop10SpecificQty") or 0)
+                    None if not fut_cycle_totals else fut_cycle_totals.get("longTop10SpecificCycleSum")
                 ),
                 "futuresSellTop10SpecificCycle": (
-                    None if not fut_cycle or fut.get("shortTop10SpecificQty") is None or fut_cycle.get("shortTop10SpecificQty") is None
-                    else int(fut.get("shortTop10SpecificQty") or 0) - int(fut_cycle.get("shortTop10SpecificQty") or 0)
+                    None if not fut_cycle_totals else fut_cycle_totals.get("shortTop10SpecificCycleSum")
                 ),
                 "callBuyTop5SpecificDay": opt.get("callBuyTop5SpecificDay", previous.get("callBuyTop5SpecificDay", 0)),
                 "callSellTop5SpecificDay": opt.get("callSellTop5SpecificDay", previous.get("callSellTop5SpecificDay", 0)),
@@ -1737,12 +1797,10 @@ def normalize_high_low_alignment(report: dict[str, Any]) -> None:
                 "foreignFuturesBuyDay": foreign_fut_buy if foreign_fut_buy is not None else previous.get("foreignFuturesBuyDay"),
                 "foreignFuturesSellDay": foreign_fut_sell if foreign_fut_sell is not None else previous.get("foreignFuturesSellDay"),
                 "foreignFuturesBuyCycle": (
-                    None if not foreign_fut_cycle or not foreign_fut_current or foreign_fut_cycle.get("oiLongQty") is None
-                    else int(foreign_fut_current.get("oiLongQty") or 0) - int(foreign_fut_cycle.get("oiLongQty") or 0)
+                    None if not foreign_fut_cycle_totals else foreign_fut_cycle_totals.get("foreignFuturesBuyCycleSum")
                 ),
                 "foreignFuturesSellCycle": (
-                    None if not foreign_fut_cycle or not foreign_fut_current or foreign_fut_cycle.get("oiShortQty") is None
-                    else int(foreign_fut_current.get("oiShortQty") or 0) - int(foreign_fut_cycle.get("oiShortQty") or 0)
+                    None if not foreign_fut_cycle_totals else foreign_fut_cycle_totals.get("foreignFuturesSellCycleSum")
                 ),
                 "foreignCallBuyDay": foreign_opt.get("foreignCallBuyDay", 0),
                 "foreignCallSellDay": foreign_opt.get("foreignCallSellDay", 0),

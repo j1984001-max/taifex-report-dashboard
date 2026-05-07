@@ -265,8 +265,15 @@ def capture_report_screenshots(report_date: str) -> dict[str, bytes]:
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=120_000)
                 # The page renders sections after fetching /api/report, so wait for C/D heading text.
+                page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照").first.wait_for(timeout=120_000)
                 page.locator("h2", has_text="C. 大額交易人未沖銷詳細版").first.wait_for(timeout=120_000)
                 page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版").first.wait_for(timeout=120_000)
+
+                high_low_block = page.locator("div.mt-5").filter(
+                    has=page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照")
+                ).first
+                if high_low_block.count() > 0:
+                    screenshots["high_low"] = high_low_block.screenshot(type="png")
 
                 c_section = page.locator("section.section-card").filter(
                     has=page.locator("h2", has_text="C. 大額交易人未沖銷詳細版")
@@ -497,6 +504,16 @@ def main() -> None:
 
     # Attach C/D screenshots right after quick overview.
     shots = capture_report_screenshots(report["meta"]["date"])
+    if shots.get("high_low"):
+        results.append(
+            send_telegram_document(
+                token,
+                args.chat_id,
+                caption=f"高低點對照圖表（{report['meta']['date']}）",
+                filename=f"high-low-{report['meta']['date'].replace('/', '-')}.png",
+                data=shots["high_low"],
+            )
+        )
     if shots.get("c_large"):
         results.append(
             send_telegram_document(
