@@ -432,10 +432,15 @@ def publish_snapshot(report_date: str) -> str:
 
 def report_is_ready(report: dict[str, object], *, mode: str = "full") -> tuple[bool, str]:
     tables = report.get("tables", {})
+    overview = report.get("changeOverview", {})
     for key in ["A", "B", "C", "D"]:
         rows = tables.get(key, {}).get("rows", [])
         if not rows:
             return False, f"{key} 缺少 rows"
+    alignment_rows = overview.get("highLowAlignmentRows", [])
+    alignment_highlights = overview.get("highLowAlignmentHighlights", [])
+    if not alignment_rows or not alignment_highlights:
+        return False, "高低點對照速覽尚未補齊"
     if mode == "full":
         charts = tables.get("E", {}).get("charts", [])
         if len(charts) < 3:
