@@ -976,7 +976,7 @@
             if (!rows || !rows.length) return "";
             return `
                 <div class="mt-5">
-                    <h4 class="font-black mb-2">期貨高低點 x 前十大特定法人單日增減對照</h4>
+                    <h4 class="font-black mb-2">期貨高低點 x 前五大 / 前十大特定法人單日增減對照</h4>
                     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                         ${rows.map((row) => `
                             <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
@@ -986,11 +986,12 @@
                                     <div class="text-sm leading-7">期貨空方合計單日：<span class="${signedClass(row.highPointFuturesShortTotal)}">${formatSigned(row.highPointFuturesShortTotal)}</span></div>
                                     <div class="text-sm leading-7 font-semibold">${escapeHtml(row.highPointFuturesShortLabel || "缺資料")}</div>
                                     <div class="text-sm leading-7">期貨高點：<span class="font-semibold">${formatNumber(row.futuresHigh)}</span></div>
-                                    <div class="text-sm leading-7">特定法人賣方前十大：<span class="${signedClass(row.futuresSellTop10SpecificDay)}">${formatSigned(row.futuresSellTop10SpecificDay)}</span></div>
-                                    <div class="text-sm leading-7">外資期貨空方：<span class="${signedClass(row.foreignFuturesSellDay)}">${formatSigned(row.foreignFuturesSellDay)}</span></div>
+                                    <div class="text-sm leading-7">特定法人賣方前五大：單日 <span class="${signedClass(row.futuresSellTop5SpecificDay)}">${formatSigned(row.futuresSellTop5SpecificDay)}</span> / 累積 <span class="${signedClass(row.futuresSellTop5SpecificCycle)}">${formatSigned(row.futuresSellTop5SpecificCycle)}</span></div>
+                                    <div class="text-sm leading-7">特定法人賣方前十大：單日 <span class="${signedClass(row.futuresSellTop10SpecificDay)}">${formatSigned(row.futuresSellTop10SpecificDay)}</span> / 累積 <span class="${signedClass(row.futuresSellTop10SpecificCycle)}">${formatSigned(row.futuresSellTop10SpecificCycle)}</span></div>
+                                    <div class="text-sm leading-7">外資期貨空方：單日 <span class="${signedClass(row.foreignFuturesSellDay)}">${formatSigned(row.foreignFuturesSellDay)}</span> / 累積 <span class="${signedClass(row.foreignFuturesSellCycle)}">${formatSigned(row.foreignFuturesSellCycle)}</span></div>
                                     <div class="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">選擇權拆解</div>
-                                    <div class="text-sm leading-7">特定法人買權賣方：<span class="${signedClass(row.callSellTop10SpecificDay)}">${formatSigned(row.callSellTop10SpecificDay)}</span></div>
-                                    <div class="text-sm leading-7">特定法人賣權買方：<span class="${signedClass(row.putBuyTop10SpecificDay)}">${formatSigned(row.putBuyTop10SpecificDay)}</span></div>
+                                    <div class="text-sm leading-7">特定法人買權賣方：前五大 <span class="${signedClass(row.callSellTop5SpecificDay)}">${formatSigned(row.callSellTop5SpecificDay)}</span> / 前十大 <span class="${signedClass(row.callSellTop10SpecificDay)}">${formatSigned(row.callSellTop10SpecificDay)}</span></div>
+                                    <div class="text-sm leading-7">特定法人賣權買方：前五大 <span class="${signedClass(row.putBuyTop5SpecificDay)}">${formatSigned(row.putBuyTop5SpecificDay)}</span> / 前十大 <span class="${signedClass(row.putBuyTop10SpecificDay)}">${formatSigned(row.putBuyTop10SpecificDay)}</span></div>
                                     <div class="text-sm leading-7">外資買權賣方：<span class="${signedClass(row.foreignCallSellDay)}">${formatSigned(row.foreignCallSellDay)}</span></div>
                                     <div class="text-sm leading-7">外資賣權買方：<span class="${signedClass(row.foreignPutBuyDay)}">${formatSigned(row.foreignPutBuyDay)}</span></div>
                                 </div>
@@ -999,18 +1000,19 @@
                                     <div class="text-sm leading-7">期貨多方合計單日：<span class="${signedClass(row.lowPointFuturesLongTotal)}">${formatSigned(row.lowPointFuturesLongTotal)}</span></div>
                                     <div class="text-sm leading-7 font-semibold">${escapeHtml(row.lowPointFuturesLongLabel || "缺資料")}</div>
                                     <div class="text-sm leading-7">期貨低點：<span class="font-semibold">${formatNumber(row.futuresLow)}</span></div>
-                                    <div class="text-sm leading-7">特定法人買方前十大：<span class="${signedClass(row.futuresBuyTop10SpecificDay)}">${formatSigned(row.futuresBuyTop10SpecificDay)}</span></div>
-                                    <div class="text-sm leading-7">外資期貨多方：<span class="${signedClass(row.foreignFuturesBuyDay)}">${formatSigned(row.foreignFuturesBuyDay)}</span></div>
+                                    <div class="text-sm leading-7">特定法人買方前五大：單日 <span class="${signedClass(row.futuresBuyTop5SpecificDay)}">${formatSigned(row.futuresBuyTop5SpecificDay)}</span> / 累積 <span class="${signedClass(row.futuresBuyTop5SpecificCycle)}">${formatSigned(row.futuresBuyTop5SpecificCycle)}</span></div>
+                                    <div class="text-sm leading-7">特定法人買方前十大：單日 <span class="${signedClass(row.futuresBuyTop10SpecificDay)}">${formatSigned(row.futuresBuyTop10SpecificDay)}</span> / 累積 <span class="${signedClass(row.futuresBuyTop10SpecificCycle)}">${formatSigned(row.futuresBuyTop10SpecificCycle)}</span></div>
+                                    <div class="text-sm leading-7">外資期貨多方：單日 <span class="${signedClass(row.foreignFuturesBuyDay)}">${formatSigned(row.foreignFuturesBuyDay)}</span> / 累積 <span class="${signedClass(row.foreignFuturesBuyCycle)}">${formatSigned(row.foreignFuturesBuyCycle)}</span></div>
                                     <div class="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">選擇權拆解</div>
-                                    <div class="text-sm leading-7">特定法人買權買方：<span class="${signedClass(row.callBuyTop10SpecificDay)}">${formatSigned(row.callBuyTop10SpecificDay)}</span></div>
-                                    <div class="text-sm leading-7">特定法人賣權賣方：<span class="${signedClass(row.putSellTop10SpecificDay)}">${formatSigned(row.putSellTop10SpecificDay)}</span></div>
+                                    <div class="text-sm leading-7">特定法人買權買方：前五大 <span class="${signedClass(row.callBuyTop5SpecificDay)}">${formatSigned(row.callBuyTop5SpecificDay)}</span> / 前十大 <span class="${signedClass(row.callBuyTop10SpecificDay)}">${formatSigned(row.callBuyTop10SpecificDay)}</span></div>
+                                    <div class="text-sm leading-7">特定法人賣權賣方：前五大 <span class="${signedClass(row.putSellTop5SpecificDay)}">${formatSigned(row.putSellTop5SpecificDay)}</span> / 前十大 <span class="${signedClass(row.putSellTop10SpecificDay)}">${formatSigned(row.putSellTop10SpecificDay)}</span></div>
                                     <div class="text-sm leading-7">外資買權買方：<span class="${signedClass(row.foreignCallBuyDay)}">${formatSigned(row.foreignCallBuyDay)}</span></div>
                                     <div class="text-sm leading-7">外資賣權賣方：<span class="${signedClass(row.foreignPutSellDay)}">${formatSigned(row.foreignPutSellDay)}</span></div>
                                 </div>
                             </div>
                         `).join("")}
                     </div>
-                    <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">口徑：高點只看期貨空方單日，並搭配買權賣方、賣權買方；低點只看期貨多方單日，並搭配買權買方、賣權賣方。特定法人採月契約前十大；外資期貨採臺股期貨單日多方 / 空方變動。</div>
+                    <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">口徑：高點只看期貨空方單日，並搭配買權賣方、賣權買方；低點只看期貨多方單日，並搭配買權買方、賣權賣方。期貨特定法人補列前五大與前十大，並顯示自前次月結算日後累積；外資期貨同樣顯示單日與累積。</div>
                 </div>
             `;
         }
@@ -2000,6 +2002,43 @@
             fallbackNotice.classList.remove("hidden");
         }
 
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function fetchReportJson(query, retries = 3) {
+            let lastError = null;
+            for (let attempt = 0; attempt < retries; attempt += 1) {
+                try {
+                    const response = await fetch(`/api/report${query}`, { cache: "no-store" });
+                    const contentType = response.headers.get("content-type") || "";
+                    const rawText = await response.text();
+
+                    if (!contentType.includes("application/json")) {
+                        const looksLikeHtml = rawText.trim().startsWith("<!DOCTYPE") || rawText.trim().startsWith("<html");
+                        throw new Error(
+                            looksLikeHtml
+                                ? "伺服器暫時回傳了頁面內容，可能是 Render 剛啟動或正在部署，系統會自動重試。"
+                                : "伺服器回應格式異常，系統會自動重試。"
+                        );
+                    }
+
+                    const data = JSON.parse(rawText);
+                    if (!response.ok) {
+                        throw new Error(data.error || `HTTP ${response.status}`);
+                    }
+                    return data;
+                } catch (error) {
+                    lastError = error;
+                    if (attempt < retries - 1) {
+                        await sleep(1500 * (attempt + 1));
+                        continue;
+                    }
+                }
+            }
+            throw lastError || new Error("資料載入失敗");
+        }
+
         async function loadReport(forceRefresh = false) {
             refreshBtn.disabled = true;
             errorBox.classList.add("hidden");
@@ -2014,9 +2053,7 @@
                 if (date) params.set("date", date.replaceAll("-", "/"));
                 if (forceRefresh) params.set("refresh", "1");
                 const query = params.toString() ? `?${params.toString()}` : "";
-                const response = await fetch(`/api/report${query}`, { cache: "no-store" });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                const data = await fetchReportJson(query, forceRefresh ? 2 : 4);
                 syncDatePicker(data.meta.date);
                 showFallbackNotice(data.meta.date);
                 renderReport(data);

@@ -328,7 +328,7 @@ def build_quick_overview(report: dict[str, object]) -> str:
 
     alignment_highlights = overview.get("highLowAlignmentHighlights") or []
     if alignment_highlights:
-        lines.extend(["", "高低點 x 前十大特定法人單日增減"])
+        lines.extend(["", "高低點 x 前五大 / 前十大特定法人單日增減"])
         lines.extend(format_alignment_highlight_lines(alignment_highlights))
 
     futures_highlights = overview.get("futuresOverviewHighlights") or overview.get("highlights") or []
@@ -373,7 +373,7 @@ def build_high_low_focus_overview(report: dict[str, object], *, days: int = 3) -
         f"完整網頁：{meta['reportUrl']}",
     ]
     if alignment_highlights:
-        lines.extend(["", "高低點 x 前十大特定法人單日增減"])
+        lines.extend(["", "高低點 x 前五大 / 前十大特定法人單日增減"])
         lines.extend(format_alignment_highlight_lines(alignment_highlights[:days]))
     return decorate_telegram_text("\n".join(lines))
 
