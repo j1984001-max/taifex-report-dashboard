@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import html as html_lib
 import io
 import json
 import os
@@ -111,6 +112,38 @@ SETTLEMENT_SOURCE_URLS = {
     "taifex_ftse100": "https://www.taifex.com.tw/cht/2/f1f",
     "sgx_ftse_taiwan": "https://www.sgx.com/derivatives/products/twnfc",
 }
+CNYES_EVENTS_URL = "https://www.cnyes.com/economy/events"
+CNYES_WS_BASE = "https://ws.api.cnyes.com"
+CNYES_WS_HEADERS = {
+    **HEADERS,
+    "X-System-Kind": "LOBBY",
+    "X-platform": "WEB",
+}
+CNYES_EVENT_KEYWORDS = (
+    "非農",
+    "cpi",
+    "ppi",
+    "gdp",
+    "pmi",
+    "利率決議",
+    "利率",
+    "央行",
+    "fomc",
+    "就業",
+    "失業",
+    "通膨",
+    "貿易",
+    "零售",
+    "消費者信心",
+)
+CNYES_EXCLUDE_KEYWORDS = (
+    "財報",
+    "業績",
+    "盤前",
+    "盤後",
+    "法說",
+    "股東會",
+)
 
 pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
 
@@ -333,6 +366,13 @@ def request_bytes(base: str, path: str, data: dict[str, str] | None = None) -> b
         return response.read()
 
 
+def request_json(base: str, path: str, data: dict[str, str | int] | None = None, headers: dict[str, str] | None = None) -> Any:
+    query = f"?{urllib.parse.urlencode(data)}" if data else ""
+    request = urllib.request.Request(f"{base}{path}{query}", headers=headers or HEADERS)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8", "ignore"))
+
+
 def parse_tables(html: str) -> list[list[list[str]]]:
     parser = TableParser()
     parser.feed(html)
@@ -424,6 +464,16 @@ def strip_html_text(value: str) -> str:
 
 def format_tw_datetime(dt: datetime) -> str:
     return dt.astimezone(TW_TZ).strftime("%Y/%m/%d %H:%M")
+
+
+def business_dates_from(start_date: datetime.date, count: int) -> list[datetime.date]:
+    dates: list[datetime.date] = []
+    current = start_date
+    while len(dates) < count:
+        if current.weekday() < 5:
+            dates.append(current)
+        current += timedelta(days=1)
+    return dates
 
 
 def extract_date_prefix(value: str) -> datetime.date | None:
@@ -673,6 +723,85 @@ def build_settlement_reminders(report_date: str) -> list[dict[str, str]]:
     ]
 
 
+def simplify_cnyes_subject(subject: str) -> str:
+    cleaned = html_lib.unescape(strip_html_text(subject))
+    primary = cleaned.split("/")[0].strip()
+    return primary or cleaned
+
+
+def fetch_cnyes_important_dates(report_date: str) -> list[dict[str, str]]:
+    base_date = datetime.strptime(report_date, "%Y/%m/%d").date()
+    target_dates = business_dates_from(base_date, 3)
+    target_set = {day.strftime("%Y/%m/%d") for day in target_dates}
+    payload = {
+        "type": 3,
+        "from": int(datetime.combine(base_date, datetime.min.time(), tzinfo=TW_TZ).timestamp()),
+        "selectMonthOrDate": "month",
+    }
+    response = request_json(
+        CNYES_WS_BASE,
+        "/ws/api/v1/global/indicatorsEvents",
+        payload,
+        headers=CNYES_WS_HEADERS,
+    )
+    rows = response.get("data") if isinstance(response, dict) else []
+    if not isinstance(rows, list):
+        return []
+
+    seen: set[tuple[str, str]] = set()
+    items: list[dict[str, str]] = []
+    for row in rows:
+        start_ts = row.get("startDate")
+        if not start_ts:
+            continue
+        date_text = datetime.fromtimestamp(int(start_ts), tz=TW_TZ).strftime("%Y/%m/%d")
+        if date_text not in target_set:
+            continue
+        subject = simplify_cnyes_subject(str(row.get("subject") or ""))
+        lowered = subject.lower()
+        priority = row.get("priority")
+        if any(keyword in subject for keyword in CNYES_EXCLUDE_KEYWORDS):
+            continue
+        if (priority or 0) < 2 and not any(keyword in lowered for keyword in CNYES_EVENT_KEYWORDS):
+            continue
+        time_text = normalize_text(str(row.get("time") or ""))
+        place_text = normalize_text(str(row.get("place") or ""))
+        country = normalize_text(str(row.get("countryName") or "全球"))
+        summary = f"{country}：{subject}"
+        dedupe_key = (date_text, summary)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        datetime_text = f"{date_text} {time_text}" if time_text else f"{date_text}（台北時間未定）"
+        note_parts = []
+        if place_text:
+            note_parts.append(f"地點：{place_text}")
+        note_parts.append(f"鉅亨重要度：{priority if priority is not None else '未標示'}")
+        items.append(
+            {
+                "category": "市場重要事件補充",
+                "title": summary,
+                "sourceTitle": "CNYES",
+                "sourceUrl": CNYES_EVENTS_URL,
+                "sourceDateTime": f"{datetime_text}（台北時間）" if time_text else datetime_text,
+                "taiwanDateTime": datetime_text,
+                "status": "鉅亨補充來源",
+                "note": "；".join(note_parts),
+                "priority": priority or 0,
+            }
+        )
+
+    items.sort(
+        key=lambda item: (
+            extract_date_prefix(item["taiwanDateTime"]) or base_date,
+            item["taiwanDateTime"],
+            -int(item.get("priority") or 0),
+            item["title"],
+        )
+    )
+    return items[:8]
+
+
 def build_important_dates(report_date: str) -> dict[str, Any]:
     items = [build_tsmc_event(report_date)]
     notes = [
@@ -680,6 +809,7 @@ def build_important_dates(report_date: str) -> dict[str, Any]:
         "美國經濟數據時間一律先採官方來源原始時區，再轉換為台灣時間。",
         "CPI / PPI / 非農目前改用官方 BLS 排程補齊；若超出目前內建年度，會標示待下一年度排程。",
         "重要結算日期提醒為依各商品官方契約規則推算的下一個日期，若遇假日或市場休市，仍應以交易所行事曆複核。",
+        "鉅亨網金融行事曆僅作三個營業日內的補充來源，優先保留高重要度或關鍵總經事件；若與官方來源重複，請以官方公告為準。",
     ]
     items.extend(build_settlement_reminders(report_date))
     items.extend(build_bls_static_dates(report_date))
@@ -691,6 +821,10 @@ def build_important_dates(report_date: str) -> dict[str, Any]:
         items.append(fetch_fomc_date(report_date))
     except Exception:
         notes.append("Federal Reserve 排程頁本次抓取失敗，請改點官方來源複核。")
+    try:
+        items.extend(fetch_cnyes_important_dates(report_date))
+    except Exception:
+        notes.append("鉅亨網金融行事曆本次抓取失敗，本站仍以既有官方來源為主。")
     base_date = datetime.strptime(report_date, "%Y/%m/%d").date()
     urgent_items: list[str] = []
     for item in items:

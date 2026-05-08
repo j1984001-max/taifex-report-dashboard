@@ -329,9 +329,11 @@ def build_quick_overview(report: dict[str, object]) -> str:
         f"PDF：{PUBLIC_BASE_URL}/api/report.pdf?date={meta['date']}",
     ]
 
+    lines.extend(["", "三個營業日內重要日期"])
     if overview.get("urgentHighlights"):
-        lines.extend(["", "三個營業日內重要日期"])
         lines.extend(f"- {item}" for item in overview["urgentHighlights"])
+    else:
+        lines.append("- 目前三個營業日內無重要日期。")
 
     alignment_highlights = overview.get("highLowAlignmentHighlights") or []
     if alignment_highlights:
@@ -379,6 +381,11 @@ def build_high_low_focus_overview(report: dict[str, object], *, days: int = 3) -
         f"{meta['date']} 高低點對照速覽",
         f"完整網頁：{meta['reportUrl']}",
     ]
+    lines.extend(["", "三個營業日內重要日期"])
+    if overview.get("urgentHighlights"):
+        lines.extend(f"- {item}" for item in overview["urgentHighlights"])
+    else:
+        lines.append("- 目前三個營業日內無重要日期。")
     if alignment_highlights:
         lines.extend(["", "高低點 x 前五大 / 前十大特定法人單日增減"])
         lines.extend(format_alignment_highlight_lines(alignment_highlights[:days]))
