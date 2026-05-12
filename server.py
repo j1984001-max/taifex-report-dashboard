@@ -3618,6 +3618,43 @@ def build_report_pdf(report: dict[str, Any]) -> bytes:
     pdf_subsection("期貨差異變動速覽", report["changeOverview"].get("futuresOverviewHighlights", []), story, subheading_style, body_style)
     pdf_subsection("大額交易人前五大 / 前十大", report["changeOverview"].get("largeTraderOverviewHighlights", []), story, subheading_style, body_style)
     pdf_subsection("選擇權分契約速覽", report["changeOverview"].get("optionOverviewHighlights", []), story, subheading_style, body_style)
+    option_items = report["changeOverview"].get("optionItems") or []
+    if option_items:
+        story.append(Paragraph("選擇權法人變動明細", subheading_style))
+        option_item_data = [[
+            "身份別", "未平倉淨額", "單日多方", "單日空方", "單日淨額", "累積多方", "累積空方", "累積淨額"
+        ]]
+        for item in option_items:
+            option_item_data.append([
+                item.get("institution") or "缺資料",
+                format_signed(item.get("oiNetQty")),
+                format_signed(item.get("dayLongChange")),
+                format_signed(item.get("dayShortChange")),
+                format_signed(item.get("dayNetChange")),
+                format_signed(item.get("cycleLongChange")),
+                format_signed(item.get("cycleShortChange")),
+                format_signed(item.get("cycleNetChange")),
+            ])
+        story.append(pdf_table(option_item_data, body_style, table_header_style, [28 * mm, 20 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm]))
+        story.append(Spacer(1, 2 * mm))
+
+    option_specific_cards = report["changeOverview"].get("optionSpecificCards") or []
+    if option_specific_cards:
+        story.append(Paragraph("選擇權特定法人變動明細", subheading_style))
+        option_specific_data = [[
+            "項目", "買方前五大", "買方前十大", "賣方前五大", "賣方前十大", "累積基準日"
+        ]]
+        for item in option_specific_cards:
+            option_specific_data.append([
+                item.get("label") or "缺資料",
+                f"{item.get('longTop5Qty') or '缺資料'} / {item.get('longTop5Day') or '缺資料'} / {item.get('longTop5Cycle') or '缺資料'}",
+                f"{item.get('longTop10Qty') or '缺資料'} / {item.get('longTop10Day') or '缺資料'} / {item.get('longTop10Cycle') or '缺資料'}",
+                f"{item.get('shortTop5Qty') or '缺資料'} / {item.get('shortTop5Day') or '缺資料'} / {item.get('shortTop5Cycle') or '缺資料'}",
+                f"{item.get('shortTop10Qty') or '缺資料'} / {item.get('shortTop10Day') or '缺資料'} / {item.get('shortTop10Cycle') or '缺資料'}",
+                item.get("cycleStartDate") or "缺資料",
+            ])
+        story.append(pdf_table(option_specific_data, body_style, table_header_style, [34 * mm, 32 * mm, 32 * mm, 32 * mm, 32 * mm, 20 * mm]))
+        story.append(Spacer(1, 2 * mm))
 
     prediction = report["changeOverview"].get("prediction") or {}
     if prediction:
