@@ -3470,6 +3470,15 @@ def pdf_bullets(items: list[str], story: list[Any], body_style: ParagraphStyle) 
         story.append(Spacer(1, 2 * mm))
 
 
+def pdf_subsection(title: str, items: list[str], story: list[Any], subheading_style: ParagraphStyle, body_style: ParagraphStyle) -> None:
+    story.append(Paragraph(pdf_escape(title), subheading_style))
+    if items:
+        pdf_bullets(items, story, body_style)
+    else:
+        story.append(Paragraph(pdf_markup("目前無資料。"), body_style))
+        story.append(Spacer(1, 2 * mm))
+
+
 def pdf_table(
     data: list[list[Any]],
     body_style: ParagraphStyle,
@@ -3574,10 +3583,77 @@ def build_report_pdf(report: dict[str, Any]) -> bytes:
     story.append(Spacer(1, 4 * mm))
 
     story.append(Paragraph("速覽彙總", heading_style))
-    pdf_bullets(report["changeOverview"].get("highlights", []), story, body_style)
-    if report["changeOverview"].get("largeTraderSummary"):
-        story.append(Paragraph("大額交易人前五大 / 前十大", subheading_style))
-        pdf_bullets(report["changeOverview"]["largeTraderSummary"], story, body_style)
+    urgent_highlights = report["changeOverview"].get("urgentHighlights", [])
+    pdf_subsection(
+        "三個營業日內重要日期",
+        urgent_highlights or ["目前三個營業日內無重要日期。"],
+        story,
+        subheading_style,
+        body_style,
+    )
+    high_low_rows = report["changeOverview"].get("highLowAlignmentRows", [])
+    if high_low_rows:
+        story.append(Paragraph("高低點 x 前五大 / 前十大特定法人單日增減", subheading_style))
+        high_low_data = [[
+            "日期", "期貨高點", "高點空方單日",
+            "特法賣方前五/前十", "外資期貨空方",
+            "期貨低點", "低點多方單日",
+            "特法買方前五/前十", "外資期貨多方",
+        ]]
+        for row in high_low_rows[:5]:
+            high_low_data.append([
+                row.get("date") or "缺資料",
+                format_market_price(row.get("futuresHigh")),
+                format_signed(row.get("highPointFuturesShortTotal")),
+                f"{format_signed(row.get('futuresSellTop5SpecificDay'))} / {format_signed(row.get('futuresSellTop10SpecificDay'))}",
+                f"{format_signed(row.get('foreignFuturesSellDay'))} / 累積 {format_signed(row.get('foreignFuturesSellCycle'))}",
+                format_market_price(row.get("futuresLow")),
+                format_signed(row.get("lowPointFuturesLongTotal")),
+                f"{format_signed(row.get('futuresBuyTop5SpecificDay'))} / {format_signed(row.get('futuresBuyTop10SpecificDay'))}",
+                f"{format_signed(row.get('foreignFuturesBuyDay'))} / 累積 {format_signed(row.get('foreignFuturesBuyCycle'))}",
+            ])
+        story.append(pdf_table(high_low_data, body_style, table_header_style, [18 * mm, 16 * mm, 18 * mm, 23 * mm, 22 * mm, 16 * mm, 18 * mm, 23 * mm, 22 * mm]))
+        story.append(Spacer(1, 2 * mm))
+
+    pdf_subsection("期貨差異變動速覽", report["changeOverview"].get("futuresOverviewHighlights", []), story, subheading_style, body_style)
+    pdf_subsection("大額交易人前五大 / 前十大", report["changeOverview"].get("largeTraderOverviewHighlights", []), story, subheading_style, body_style)
+    pdf_subsection("選擇權分契約速覽", report["changeOverview"].get("optionOverviewHighlights", []), story, subheading_style, body_style)
+
+    prediction = report["changeOverview"].get("prediction") or {}
+    if prediction:
+        story.append(Paragraph("預測分析", subheading_style))
+        if prediction.get("summary"):
+            story.append(Paragraph(pdf_markup(prediction["summary"]), body_style))
+        if prediction.get("psychology"):
+            story.append(Paragraph(pdf_markup(prediction["psychology"]), body_style))
+        if prediction.get("reasons"):
+            pdf_bullets(prediction["reasons"], story, body_style)
+
+    important_dates = report.get("importantDates") or {}
+    important_rows = important_dates.get("rows") or []
+    if important_rows:
+        story.append(Paragraph("重要日期提醒", heading_style))
+        story.append(Paragraph(f"日期：{pdf_escape(important_dates.get('date', report['meta']['date']))}　單位：日期、時間", body_style))
+        important_data = [["分類", "項目", "來源", "台灣日期時間", "狀態", "說明"]]
+        for row in important_rows:
+            important_data.append([
+                row.get("category") or "缺資料",
+                row.get("title") or "缺資料",
+                row.get("sourceTitle") or "缺資料",
+                row.get("taiwanDateTime") or "缺資料",
+                ("三天內 / " if row.get("urgent") else "") + str(row.get("status") or "缺資料"),
+                row.get("note") or "缺資料",
+            ])
+        story.append(pdf_table(important_data, body_style, table_header_style, [18 * mm, 34 * mm, 18 * mm, 28 * mm, 20 * mm, 52 * mm]))
+        story.append(Spacer(1, 2 * mm))
+        story.append(Paragraph("表格解讀", subheading_style))
+        story.append(Paragraph(pdf_markup(important_dates.get("interpretation", "缺資料")), body_style))
+        story.append(Paragraph("重點摘要", subheading_style))
+        pdf_bullets(important_dates.get("highlights", []), story, body_style)
+        story.append(Paragraph("資料來源", subheading_style))
+        for source in important_dates.get("sources", []):
+            story.append(Paragraph(pdf_markup(source), body_style))
+        story.append(Spacer(1, 4 * mm))
 
     for key in ["A", "B", "C", "D", "E", "F", "G"]:
         section = report["tables"][key]
