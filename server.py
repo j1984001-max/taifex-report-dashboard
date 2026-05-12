@@ -3616,7 +3616,49 @@ def build_report_pdf(report: dict[str, Any]) -> bytes:
         story.append(Spacer(1, 2 * mm))
 
     pdf_subsection("期貨差異變動速覽", report["changeOverview"].get("futuresOverviewHighlights", []), story, subheading_style, body_style)
+    futures_cards = report["changeOverview"].get("items") or []
+    if futures_cards:
+        story.append(Paragraph("期貨分類變動明細", subheading_style))
+        futures_card_data = [[
+            "商品", "單日合計", "累積合計", "法人", "單日多方", "單日空方", "單日淨額", "累積多方", "累積空方", "累積淨額"
+        ]]
+        for item in futures_cards:
+            institutions = item.get("institutions") or [{}]
+            first = True
+            for inst in institutions:
+                futures_card_data.append([
+                    item.get("product") if first else "",
+                    format_signed(item.get("dayTotal")) if first else "",
+                    f"{item.get('cycleStartDate') or '缺資料'} 起 {format_signed(item.get('cycleTotal'))}" if first else "",
+                    inst.get("institution") or "缺資料",
+                    format_signed(inst.get("dayLongChange")),
+                    format_signed(inst.get("dayShortChange")),
+                    format_signed(inst.get("dayNetChange")),
+                    format_signed(inst.get("cycleLongChange")),
+                    format_signed(inst.get("cycleShortChange")),
+                    format_signed(inst.get("cycleNetChange")),
+                ])
+                first = False
+        story.append(pdf_table(futures_card_data, body_style, table_header_style, [18 * mm, 14 * mm, 24 * mm, 14 * mm, 14 * mm, 14 * mm, 14 * mm, 14 * mm, 14 * mm, 14 * mm]))
+        story.append(Spacer(1, 2 * mm))
+
     pdf_subsection("大額交易人前五大 / 前十大", report["changeOverview"].get("largeTraderOverviewHighlights", []), story, subheading_style, body_style)
+    large_trader_cards = report["changeOverview"].get("largeTraderCards") or []
+    if large_trader_cards:
+        story.append(Paragraph("大額交易人卡片明細", subheading_style))
+        large_trader_data = [[
+            "項目", "前五大", "前十大", "累積基準日"
+        ]]
+        for item in large_trader_cards:
+            large_trader_data.append([
+                item.get("label") or "缺資料",
+                f"{item.get('top5Qty') or '缺資料'} / {item.get('top5Day') or '缺資料'} / {item.get('top5Cycle') or '缺資料'}",
+                f"{item.get('top10Qty') or '缺資料'} / {item.get('top10Day') or '缺資料'} / {item.get('top10Cycle') or '缺資料'}",
+                item.get("cycleStartDate") or "缺資料",
+            ])
+        story.append(pdf_table(large_trader_data, body_style, table_header_style, [38 * mm, 44 * mm, 44 * mm, 24 * mm]))
+        story.append(Spacer(1, 2 * mm))
+
     pdf_subsection("選擇權分契約速覽", report["changeOverview"].get("optionOverviewHighlights", []), story, subheading_style, body_style)
     option_items = report["changeOverview"].get("optionItems") or []
     if option_items:
