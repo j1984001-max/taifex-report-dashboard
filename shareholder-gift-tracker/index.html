@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>股東會紀念品追蹤器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800;900&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero-card">
+      <div class="hero-copy">
+        <p class="eyebrow">Shareholder Gift Desk</p>
+        <h1>股東會紀念品追蹤器</h1>
+        <p class="lead">
+          批次貼上股票代號，快速整理今年的股東會紀念品、最後買進日、電子投票期間與可補到的領取線索。
+        </p>
+      </div>
+      <div class="hero-meta">
+        <div class="meta-block">
+          <span>資料來源</span>
+          <strong>撿股讚 / 股東禮簿 / 宏遠股代</strong>
+        </div>
+        <div class="meta-block">
+          <span>本次更新</span>
+          <strong id="updatedAtText">尚未查詢</strong>
+        </div>
+        <div class="meta-block">
+          <span>自動刷新</span>
+          <strong>頁面開啟時每 15 分鐘</strong>
+        </div>
+      </div>
+    </header>
+
+    <main class="dashboard-grid">
+      <aside class="control-card">
+        <div class="panel-head">
+          <h2>批次匯入</h2>
+          <p>支援逗號、空白或換行分隔</p>
+        </div>
+
+        <label class="field-block">
+          <span>股票代號</span>
+          <textarea id="codesInput" rows="12" placeholder="例如：2317, 2409, 3037&#10;9938&#10;2006"></textarea>
+        </label>
+
+        <div class="button-row">
+          <button id="lookupBtn" class="primary-btn" type="button">查詢最新資料</button>
+          <button id="saveWatchlistBtn" class="ghost-btn" type="button">儲存 watchlist</button>
+        </div>
+
+        <div class="button-row compact">
+          <button id="loadSampleBtn" class="chip-btn" type="button">載入範例</button>
+          <button id="clearBtn" class="chip-btn" type="button">清空</button>
+        </div>
+
+        <section class="watch-card">
+          <div class="panel-head mini">
+            <h3>追蹤規則</h3>
+          </div>
+          <ul class="hint-list">
+            <li>已公告：直接顯示紀念品、最後買進日與電子投票資訊。</li>
+            <li>未公告：保留在 watchlist，之後重查就能看到新資料。</li>
+            <li>有變更：若和你上次查詢結果不同，會標示「NEW」。</li>
+          </ul>
+        </section>
+      </aside>
+
+      <section class="content-stack">
+        <section class="summary-strip" id="summaryStrip"></section>
+
+        <section class="surface-card">
+          <div class="panel-head">
+            <div>
+              <h2>查詢結果</h2>
+              <p id="statusText">尚未查詢資料</p>
+            </div>
+            <div class="toolbar">
+              <button id="refreshBtn" class="ghost-btn" type="button">重新整理</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>代號 / 公司</th>
+                  <th>狀態</th>
+                  <th>紀念品</th>
+                  <th>關鍵日期</th>
+                  <th>電子投票 / 領取</th>
+                  <th>股代 / 備註</th>
+                  <th>來源</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody">
+                <tr>
+                  <td colspan="7" class="empty-cell">貼上股票代號後開始查詢</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <template id="summaryCardTemplate">
+    <article class="summary-card">
+      <span class="summary-label"></span>
+      <strong class="summary-value"></strong>
+      <p class="summary-note"></p>
+    </article>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>

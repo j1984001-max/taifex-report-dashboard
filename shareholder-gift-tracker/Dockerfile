@@ -2,16 +2,12 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8000
+    PORT=8765
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
 COPY server.py index.html app.js styles.css ./
-COPY shareholder-gift-tracker ./shareholder-gift-tracker
 
-EXPOSE 8000
+EXPOSE 8765
 
 CMD ["python", "server.py"]
