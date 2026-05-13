@@ -95,7 +95,7 @@ BLS_STATIC_2026 = [
         "note": "Consumer Price Index for March 2026",
     },
     {
-        "title": "PPI",
+        "title": "PPI（生產者物價指數）",
         "sourceUrl": "https://www.bls.gov/schedule/news_release/ppi.htm",
         "sourceTitle": "BLS",
         "month": 4,
@@ -524,6 +524,51 @@ def parse_us_datetime(year: int, month_name: str, day: str, time_text: str, am_p
     return datetime(year, MONTH_NAMES[month_name], int(day), hour, minute, tzinfo=US_EASTERN)
 
 
+def parse_bls_release_datetime(date_text: str, time_text: str, am_pm: str) -> datetime | None:
+    for fmt in ("%b. %d, %Y", "%b %d, %Y", "%B %d, %Y"):
+        try:
+            base = datetime.strptime(date_text.strip(), fmt)
+            hour, minute = map(int, time_text.split(":"))
+            meridiem = am_pm.upper()
+            if meridiem == "PM" and hour != 12:
+                hour += 12
+            if meridiem == "AM" and hour == 12:
+                hour = 0
+            return base.replace(hour=hour, minute=minute, tzinfo=US_EASTERN)
+        except ValueError:
+            continue
+    return None
+
+
+def fetch_bls_schedule_date(item: dict[str, Any], report_date: str) -> dict[str, str] | None:
+    source_url = item["sourceUrl"]
+    parsed = urllib.parse.urlparse(source_url)
+    html = request_html(f"{parsed.scheme}://{parsed.netloc}", parsed.path)
+    plain = strip_html_text(html)
+    pattern = re.compile(
+        r"([A-Za-z0-9 ,.'/-]+?)\s+"
+        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.? \d{1,2}, \d{4}|"
+        r"(?:January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}, \d{4})\s+"
+        r"(\d{2}:\d{2})\s+(AM|PM)"
+    )
+    current_date = datetime.strptime(report_date, "%Y/%m/%d").date()
+    for reference_month, release_date, release_time, am_pm in pattern.findall(plain):
+        event_dt = parse_bls_release_datetime(release_date, release_time, am_pm)
+        if not event_dt or event_dt.date() < current_date:
+            continue
+        return {
+            "category": "美國重要經濟數據",
+            "title": item["title"],
+            "sourceTitle": item["sourceTitle"],
+            "sourceUrl": item["sourceUrl"],
+            "sourceDateTime": f"{event_dt.strftime('%Y/%m/%d %H:%M')}（美東時間）",
+            "taiwanDateTime": format_tw_datetime(event_dt),
+            "status": "官方排程",
+            "note": f"{reference_month.strip()} 發布日程",
+        }
+    return None
+
+
 def fetch_bea_important_dates(report_date: str) -> list[dict[str, str]]:
     html = request_html("https://www.bea.gov", "/news/schedule/full")
     plain = strip_html_text(html)
@@ -634,6 +679,14 @@ def build_bls_static_dates(report_date: str) -> list[dict[str, str]]:
     current_date = datetime.strptime(report_date, "%Y/%m/%d").date()
     rows: list[dict[str, str]] = []
     for item in BLS_STATIC_2026:
+        if item["title"] == "PPI":
+            try:
+                dynamic_row = fetch_bls_schedule_date(item, report_date)
+            except Exception:
+                dynamic_row = None
+            if dynamic_row:
+                rows.append(dynamic_row)
+                continue
         event_dt = datetime(2026, item["month"], item["day"], item["hour"], item["minute"], tzinfo=US_EASTERN)
         if event_dt.date() < current_date:
             continue
@@ -912,6 +965,8 @@ def normalize_important_dates(report: dict[str, Any]) -> None:
 
     urgent_items: list[str] = []
     for item in rows:
+        if item.get("title") == "PPI":
+            item["title"] = "PPI（生產者物價指數）"
         importance_level, importance_label = classify_important_date(item)
         item["importanceLevel"] = importance_level
         item["importanceLabel"] = importance_label
