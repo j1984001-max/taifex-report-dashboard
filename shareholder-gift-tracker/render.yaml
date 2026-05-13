@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: shareholder-gift-tracker
-    env: docker
-    plan: free
-    autoDeploy: true
-    healthCheckPath: /api/health

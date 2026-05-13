@@ -9,8 +9,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py index.html app.js styles.css ./
-COPY shareholder-gift-tracker ./shareholder-gift-tracker
+COPY server.py index.html ./
 
 EXPOSE 8000
 

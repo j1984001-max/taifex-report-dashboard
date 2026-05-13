@@ -15,12 +15,6 @@ python3 server.py
 http://127.0.0.1:8000
 ```
 
-新增的股東會紀念品工具頁面：
-
-```text
-http://127.0.0.1:8000/shareholder-gift-tracker
-```
-
 ## 寄送 Email（附 PDF）
 
 需要先準備 Gmail App Password：
@@ -138,7 +132,6 @@ Render 特性：
 - 手機與外網可直接開啟
 - `PORT` 由平台自動提供
 - 不需要資料庫
-- 上線後股東會紀念品工具可直接走同一個網址的 `/shareholder-gift-tracker`
 
 ## 其他雲端平台
 
