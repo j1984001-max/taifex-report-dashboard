@@ -273,6 +273,13 @@ def capture_report_screenshots(report_date: str) -> dict[str, bytes]:
                     has=page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照")
                 ).first
                 if high_low_block.count() > 0:
+                    high_low_grid = high_low_block.locator("div.grid.gap-4").first
+                    if high_low_grid.count() > 0:
+                        screenshots["high_low_cards"] = high_low_grid.screenshot(type="png")
+                    summary_heading = high_low_block.locator("h5", has_text="最近 30 個營業日高低點彙整表").first
+                    if summary_heading.count() > 0:
+                        summary_panel = summary_heading.locator("xpath=..").first
+                        screenshots["high_low_summary"] = summary_panel.screenshot(type="png")
                     screenshots["high_low"] = high_low_block.screenshot(type="png")
 
                 c_section = page.locator("section.section-card").filter(
@@ -511,7 +518,17 @@ def main() -> None:
 
     # Attach C/D screenshots right after quick overview.
     shots = capture_report_screenshots(report["meta"]["date"])
-    if shots.get("high_low"):
+    if shots.get("high_low_cards"):
+        results.append(
+            send_telegram_document(
+                token,
+                args.chat_id,
+                caption=f"高低點對照圖卡（{report['meta']['date']}）",
+                filename=f"high-low-cards-{report['meta']['date'].replace('/', '-')}.png",
+                data=shots["high_low_cards"],
+            )
+        )
+    elif shots.get("high_low"):
         results.append(
             send_telegram_document(
                 token,
@@ -519,6 +536,16 @@ def main() -> None:
                 caption=f"高低點對照圖表（{report['meta']['date']}）",
                 filename=f"high-low-{report['meta']['date'].replace('/', '-')}.png",
                 data=shots["high_low"],
+            )
+        )
+    if shots.get("high_low_summary"):
+        results.append(
+            send_telegram_document(
+                token,
+                args.chat_id,
+                caption=f"高低點 30 日彙整表（{report['meta']['date']}）",
+                filename=f"high-low-summary-{report['meta']['date'].replace('/', '-')}.png",
+                data=shots["high_low_summary"],
             )
         )
     if shots.get("c_large"):
