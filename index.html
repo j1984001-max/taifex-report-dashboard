@@ -972,7 +972,63 @@
             `;
         }
 
-        function renderHighLowAlignmentTable(rows) {
+        function renderImportanceBadge(label) {
+            const value = String(label || "低");
+            const klass = value === "高"
+                ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                : value === "中"
+                    ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                    : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+            return `<span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-black ${klass}">${escapeHtml(value)}</span>`;
+        }
+
+        function renderHighLowAlignmentSummaryTable(rows) {
+            if (!rows || !rows.length) return "";
+            return `
+                <div class="mt-6">
+                    <h5 class="font-black mb-3">最近 30 個營業日高低點彙整表</h5>
+                    <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
+                        <table class="min-w-[1100px] text-sm">
+                            <thead>
+                                <tr>
+                                    <th>日期</th>
+                                    <th>期貨高點</th>
+                                    <th>高點空方合計單日</th>
+                                    <th>特法賣方前五大</th>
+                                    <th>特法賣方前十大</th>
+                                    <th>外資期貨空方</th>
+                                    <th>期貨低點</th>
+                                    <th>低點多方合計單日</th>
+                                    <th>特法買方前五大</th>
+                                    <th>特法買方前十大</th>
+                                    <th>外資期貨多方</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows.map((row) => `
+                                    <tr>
+                                        <td>${escapeHtml(row.date)}</td>
+                                        <td>${formatNumber(row.futuresHigh)}</td>
+                                        <td><span class="${signedClass(row.highPointFuturesShortTotal)}">${formatSigned(row.highPointFuturesShortTotal)}</span></td>
+                                        <td><span class="${signedClass(row.futuresSellTop5SpecificDay)}">${formatSigned(row.futuresSellTop5SpecificDay)}</span></td>
+                                        <td><span class="${signedClass(row.futuresSellTop10SpecificDay)}">${formatSigned(row.futuresSellTop10SpecificDay)}</span></td>
+                                        <td><span class="${signedClass(row.foreignFuturesSellDay)}">${formatSigned(row.foreignFuturesSellDay)}</span></td>
+                                        <td>${formatNumber(row.futuresLow)}</td>
+                                        <td><span class="${signedClass(row.lowPointFuturesLongTotal)}">${formatSigned(row.lowPointFuturesLongTotal)}</span></td>
+                                        <td><span class="${signedClass(row.futuresBuyTop5SpecificDay)}">${formatSigned(row.futuresBuyTop5SpecificDay)}</span></td>
+                                        <td><span class="${signedClass(row.futuresBuyTop10SpecificDay)}">${formatSigned(row.futuresBuyTop10SpecificDay)}</span></td>
+                                        <td><span class="${signedClass(row.foreignFuturesBuyDay)}">${formatSigned(row.foreignFuturesBuyDay)}</span></td>
+                                    </tr>
+                                `).join("")}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">表格口徑：高點欄位聚焦空方單日變動，低點欄位聚焦多方單日變動；方便用 30 日橫向比對高點壓力與低點承接是否持續。</div>
+                </div>
+            `;
+        }
+
+        function renderHighLowAlignmentTable(rows, summaryRows = []) {
             if (!rows || !rows.length) return "";
             return `
                 <div class="mt-5">
@@ -1013,6 +1069,7 @@
                         `).join("")}
                     </div>
                     <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">口徑：高點只看期貨空方單日，並搭配買權賣方、賣權買方；低點只看期貨多方單日，並搭配買權買方、賣權賣方。期貨特定法人補列前五大與前十大，並顯示自前次月結算日後累積；外資期貨同樣顯示單日與累積。</div>
+                    ${renderHighLowAlignmentSummaryTable(summaryRows)}
                 </div>
             `;
         }
@@ -1097,7 +1154,7 @@
                         </ul>
                     </div>
                 ` : ""}
-                ${section.highLowAlignmentRows && section.highLowAlignmentRows.length ? renderHighLowAlignmentTable(section.highLowAlignmentRows) : ""}
+                ${section.highLowAlignmentRows && section.highLowAlignmentRows.length ? renderHighLowAlignmentTable(section.highLowAlignmentRows, section.highLowAlignmentSummaryRows || []) : ""}
                 ${section.futuresOverviewHighlights && section.futuresOverviewHighlights.length ? renderBullets("期貨差異變動速覽", section.futuresOverviewHighlights) : ""}
                 ${section.largeTraderOverviewHighlights && section.largeTraderOverviewHighlights.length ? renderBullets("大額交易人前五大 / 前十大", section.largeTraderOverviewHighlights) : ""}
                 ${section.optionOverviewHighlights && section.optionOverviewHighlights.length ? renderBullets("選擇權分契約速覽", section.optionOverviewHighlights) : ""}
@@ -1121,6 +1178,7 @@
         function renderImportantDates(section) {
             const rows = (section.rows || []).map((row) => `
                 <tr class="${row.urgent ? "urgent-row" : ""}">
+                    <td>${renderImportanceBadge(row.importanceLabel)}</td>
                     <td>${escapeHtml(row.category)}</td>
                     <td>${escapeHtml(row.title)}</td>
                     <td><a class="text-sky-600 dark:text-sky-300 underline" href="${escapeHtml(row.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(row.sourceTitle)}</a></td>
@@ -1144,6 +1202,7 @@
                     <table>
                         <thead>
                             <tr>
+                                <th>重要性</th>
                                 <th>分類</th>
                                 <th>項目</th>
                                 <th>官方來源</th>

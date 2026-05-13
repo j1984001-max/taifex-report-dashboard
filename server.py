@@ -249,6 +249,7 @@ def load_snapshot(report_date: str, report_url: str) -> tuple[dict[str, Any], by
     try:
         report = json.loads(json_path.read_text(encoding="utf-8"))
         report["meta"]["reportUrl"] = report_url
+        normalize_important_dates(report)
         normalize_high_low_alignment(report)
         pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
         return report, pdf_data
@@ -279,6 +280,7 @@ def load_cached_report(key: str, ttl: int) -> tuple[dict[str, Any], bytes | None
 
     try:
         report = json.loads(json_path.read_text(encoding="utf-8"))
+        normalize_important_dates(report)
         normalize_high_low_alignment(report)
         pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
     except Exception:
@@ -729,6 +731,43 @@ def simplify_cnyes_subject(subject: str) -> str:
     return primary or cleaned
 
 
+def classify_important_date(item: dict[str, Any]) -> tuple[int, str]:
+    priority = int(item.get("priority") or 0)
+    text = " ".join(
+        str(item.get(key) or "")
+        for key in ("category", "title", "sourceTitle", "note", "status")
+    ).lower()
+    high_keywords = (
+        "非農",
+        "fomc",
+        "利率決議",
+        "cpi",
+        "ppi",
+        "結算",
+        "法說",
+        "fed",
+        "ecb",
+        "boe",
+        "就業報告",
+    )
+    medium_keywords = (
+        "演說",
+        "談話",
+        "貿易數據",
+        "消費者信心",
+        "零售銷售",
+        "pmi",
+        "gdp",
+        "失業率",
+        "初請",
+    )
+    if priority >= 3 or any(keyword in text for keyword in high_keywords):
+        return 3, "高"
+    if priority >= 2 or any(keyword in text for keyword in medium_keywords):
+        return 2, "中"
+    return 1, "低"
+
+
 def fetch_cnyes_important_dates(report_date: str) -> list[dict[str, str]]:
     base_date = datetime.strptime(report_date, "%Y/%m/%d").date()
     target_dates = business_dates_from(base_date, 3)
@@ -828,14 +867,26 @@ def build_important_dates(report_date: str) -> dict[str, Any]:
     base_date = datetime.strptime(report_date, "%Y/%m/%d").date()
     urgent_items: list[str] = []
     for item in items:
+        importance_level, importance_label = classify_important_date(item)
+        item["importanceLevel"] = importance_level
+        item["importanceLabel"] = importance_label
         target_date = extract_date_prefix(item.get("taiwanDateTime", "")) or extract_date_prefix(item.get("sourceDateTime", ""))
         days_until = None if target_date is None else (target_date - base_date).days
         item["daysUntil"] = days_until
         item["urgent"] = days_until is not None and 0 <= days_until <= 3
         if item["urgent"]:
             urgent_items.append(
-                f"{item['title']}：{item['taiwanDateTime']}，距今 {days_until} 天。"
+                f"【{importance_label}】 {item['title']}：{item['taiwanDateTime']}，距今 {days_until} 天。"
             )
+    items.sort(
+        key=lambda item: (
+            0 if item.get("urgent") else 1,
+            -int(item.get("importanceLevel") or 0),
+            extract_date_prefix(item.get("taiwanDateTime", "")) or base_date,
+            item.get("taiwanDateTime", ""),
+            item.get("title", ""),
+        )
+    )
     return {
         "title": "重要日期提醒",
         "date": report_date,
@@ -846,6 +897,42 @@ def build_important_dates(report_date: str) -> dict[str, Any]:
         "highlights": notes,
         "sources": sorted({item["sourceUrl"] for item in items}),
     }
+
+
+def normalize_important_dates(report: dict[str, Any]) -> None:
+    important_dates = report.get("importantDates") or {}
+    rows = important_dates.get("rows") or []
+    report_date = important_dates.get("date")
+    if not rows or not report_date:
+        return
+    try:
+        base_date = datetime.strptime(report_date, "%Y/%m/%d").date()
+    except Exception:
+        return
+
+    urgent_items: list[str] = []
+    for item in rows:
+        importance_level, importance_label = classify_important_date(item)
+        item["importanceLevel"] = importance_level
+        item["importanceLabel"] = importance_label
+        target_date = extract_date_prefix(item.get("taiwanDateTime", "")) or extract_date_prefix(item.get("sourceDateTime", ""))
+        days_until = None if target_date is None else (target_date - base_date).days
+        item["daysUntil"] = days_until
+        item["urgent"] = days_until is not None and 0 <= days_until <= 3
+        if item["urgent"]:
+            urgent_items.append(
+                f"【{importance_label}】 {item['title']}：{item['taiwanDateTime']}，距今 {days_until} 天。"
+            )
+    rows.sort(
+        key=lambda item: (
+            0 if item.get("urgent") else 1,
+            -int(item.get("importanceLevel") or 0),
+            extract_date_prefix(item.get("taiwanDateTime", "")) or base_date,
+            item.get("taiwanDateTime", ""),
+            item.get("title", ""),
+        )
+    )
+    important_dates["urgentHighlights"] = urgent_items
 
 
 def parse_pair_number(value: str) -> int:
@@ -1763,22 +1850,21 @@ def build_high_low_alignment_highlights(rows: list[dict[str, Any]]) -> list[str]
     ]
 
 
-def normalize_high_low_alignment(report: dict[str, Any]) -> None:
-    change_overview = report.get("changeOverview") or {}
-    table_d = (report.get("tables") or {}).get("D") or {}
-    table_c = (report.get("tables") or {}).get("C") or {}
-    existing_rows = change_overview.get("highLowAlignmentRows") or []
-    range_rows = change_overview.get("recentRangeRows") or existing_rows
+def normalize_high_low_alignment_rows(
+    range_rows: list[dict[str, Any]],
+    existing_rows: list[dict[str, Any]],
+    option_history_rows: list[dict[str, Any]],
+    institution_history_rows: list[dict[str, Any]],
+    futures_history_rows: list[dict[str, Any]],
+    foreign_futures_history_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     if not range_rows:
-        return
+        return []
 
-    option_history_rows = table_d.get("largeTraderOptionHistoryRows") or []
-    institution_history_rows = table_d.get("institutionHistoryRows") or []
-    futures_history_rows = table_c.get("historyRows") or []
     existing_map = {row.get("date"): row for row in existing_rows if row.get("date")}
     fut_history_map = {row["date"]: row for row in futures_history_rows if row.get("contractLabel") == "月契約"}
     foreign_fut_history_map = {
-        row["date"]: row for row in change_overview.get("foreignFuturesHistoryRows", [])
+        row["date"]: row for row in foreign_futures_history_rows
         if row.get("date")
     }
     fut_cycle_cache: dict[tuple[str, str], dict[str, int | None]] = {}
@@ -1946,9 +2032,74 @@ def normalize_high_low_alignment(report: dict[str, Any]) -> None:
                 "lowPointFuturesLongLabel": classify_pressure_strength(long_total, side="long"),
             }
         )
+    return normalized_rows
 
+
+def normalize_high_low_alignment(report: dict[str, Any]) -> None:
+    change_overview = report.get("changeOverview") or {}
+    table_d = (report.get("tables") or {}).get("D") or {}
+    table_c = (report.get("tables") or {}).get("C") or {}
+    existing_rows = change_overview.get("highLowAlignmentRows") or []
+    range_rows = change_overview.get("recentRangeRows") or existing_rows
+    if not range_rows:
+        return
+
+    option_history_rows = table_d.get("largeTraderOptionHistoryRows") or []
+    institution_history_rows = table_d.get("institutionHistoryRows") or []
+    futures_history_rows = table_c.get("historyRows") or []
+    foreign_futures_history_rows = change_overview.get("foreignFuturesHistoryRows", [])
+    normalized_rows = normalize_high_low_alignment_rows(
+        range_rows,
+        existing_rows,
+        option_history_rows,
+        institution_history_rows,
+        futures_history_rows,
+        foreign_futures_history_rows,
+    )
     change_overview["highLowAlignmentRows"] = normalized_rows
     change_overview["highLowAlignmentHighlights"] = build_high_low_alignment_highlights(normalized_rows)
+
+    summary_range_rows = change_overview.get("highLowAlignmentSummaryRangeRows") or change_overview.get("highLowAlignmentSummaryRows") or []
+    summary_existing_rows = change_overview.get("highLowAlignmentSummaryRows") or []
+    if summary_range_rows:
+        normalized_summary_rows = normalize_high_low_alignment_rows(
+            summary_range_rows,
+            summary_existing_rows,
+            option_history_rows,
+            institution_history_rows,
+            futures_history_rows,
+            foreign_futures_history_rows,
+        )
+        change_overview["highLowAlignmentSummaryRows"] = normalized_summary_rows
+        return
+
+    report_date = (report.get("meta") or {}).get("date")
+    contract = None
+    for row in (change_overview.get("highLowAlignmentRows") or []):
+        if row.get("contract"):
+            contract = row.get("contract")
+            break
+    if not report_date or not contract:
+        return
+    try:
+        summary_range_rows = build_recent_futures_spot_range_rows(report_date, count=30)
+        summary_fut_history_rows = build_large_trader_fut_history_rows(report_date, contract, count=30)
+        summary_opt_history_rows = build_large_trader_opt_history_rows(report_date, contract, count=30)
+        summary_institution_history_rows = build_institution_option_history_rows(report_date, count=30)
+        summary_foreign_futures_history_rows = build_foreign_futures_history_rows(report_date, count=30)
+        normalized_summary_rows = normalize_high_low_alignment_rows(
+            summary_range_rows,
+            [],
+            summary_opt_history_rows,
+            summary_institution_history_rows,
+            summary_fut_history_rows,
+            summary_foreign_futures_history_rows,
+        )
+        change_overview["highLowAlignmentSummaryRangeRows"] = summary_range_rows
+        change_overview["highLowAlignmentSummaryRows"] = normalized_summary_rows
+        change_overview["foreignFuturesHistoryRows"] = summary_foreign_futures_history_rows
+    except Exception:
+        return
 
 
 def build_large_trader_fut_history_rows(end_date: str, monthly_code: str, *, count: int = 5) -> list[dict[str, Any]]:
@@ -3884,12 +4035,31 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     total_summary = build_total_summary(futures_contracts, option_contracts)
     tx_reference = parse_tx_reference(tx_daily_table)
 
-    # Keep history short to avoid slow API responses on free tiers; UI still matches WantGoo layout.
+    # Keep table history short for main tables, but fetch longer history for the high/low summary block.
     tx_settlement_history = build_tx_settlement_history(effective_date, count=3)
     large_trader_fut_history_rows = build_large_trader_fut_history_rows(effective_date, tx_reference["contract"], count=4)
     large_trader_opt_history_rows = build_large_trader_opt_history_rows(effective_date, tx_reference["contract"], count=4)
     institution_option_history_rows = build_institution_option_history_rows(effective_date, count=4)
     foreign_futures_history_rows = build_foreign_futures_history_rows(effective_date, count=4)
+    high_low_history_count = 30
+    high_low_large_trader_fut_history_rows = build_large_trader_fut_history_rows(
+        effective_date,
+        tx_reference["contract"],
+        count=high_low_history_count,
+    )
+    high_low_large_trader_opt_history_rows = build_large_trader_opt_history_rows(
+        effective_date,
+        tx_reference["contract"],
+        count=high_low_history_count,
+    )
+    high_low_institution_option_history_rows = build_institution_option_history_rows(
+        effective_date,
+        count=high_low_history_count,
+    )
+    high_low_foreign_futures_history_rows = build_foreign_futures_history_rows(
+        effective_date,
+        count=high_low_history_count,
+    )
 
     large_trader_rows = fetch_large_trader_for_date(effective_date, tx_reference["contract"])
     if not large_trader_rows:
@@ -3950,12 +4120,20 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         pc_ratio, pc_ratio_method = fetch_pc_ratio_fallback(base_date)
     important_dates = build_important_dates(base_date)
     recent_futures_spot_ranges = build_recent_futures_spot_range_rows(base_date, count=5)
+    recent_futures_spot_ranges_30 = build_recent_futures_spot_range_rows(base_date, count=30)
     high_low_alignment_rows = build_high_low_specific_alignment_rows(
         recent_futures_spot_ranges,
-        large_trader_fut_history_rows,
-        large_trader_opt_history_rows,
-        foreign_futures_history_rows,
-        institution_option_history_rows,
+        high_low_large_trader_fut_history_rows,
+        high_low_large_trader_opt_history_rows,
+        high_low_foreign_futures_history_rows,
+        high_low_institution_option_history_rows,
+    )
+    high_low_alignment_summary_rows = build_high_low_specific_alignment_rows(
+        recent_futures_spot_ranges_30,
+        high_low_large_trader_fut_history_rows,
+        high_low_large_trader_opt_history_rows,
+        high_low_foreign_futures_history_rows,
+        high_low_institution_option_history_rows,
     )
 
     long_top10_add_qty = large_trader["longTop10Qty"] - large_trader["longTop5Qty"]
@@ -4005,7 +4183,9 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
             "recentRangeRows": recent_futures_spot_ranges,
             "highLowAlignmentHighlights": build_high_low_alignment_highlights(high_low_alignment_rows),
             "highLowAlignmentRows": high_low_alignment_rows,
-            "foreignFuturesHistoryRows": foreign_futures_history_rows,
+            "highLowAlignmentSummaryRangeRows": recent_futures_spot_ranges_30,
+            "highLowAlignmentSummaryRows": high_low_alignment_summary_rows,
+            "foreignFuturesHistoryRows": high_low_foreign_futures_history_rows,
             "optionHighlights": option_delta_overview["highlights"],
             "optionItems": option_delta_overview["items"],
             "optionCycleStartDate": option_delta_overview["cycleStartDate"],
