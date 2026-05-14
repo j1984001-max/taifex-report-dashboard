@@ -2,12 +2,18 @@ name: Daily TAIFEX Push
 
 on:
   schedule:
-    - cron: "1 7 * * 1-5"
+    # 15:07 Asia/Taipei, Monday-Friday. Avoids the top-of-hour Actions queue.
+    - cron: "7 7 * * 1-5"
   workflow_dispatch:
+
+concurrency:
+  group: daily-taifex-push
+  cancel-in-progress: false
 
 jobs:
   daily-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
 
