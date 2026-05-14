@@ -2049,6 +2049,15 @@
             datePicker.value = `${y}-${m}-${d}`;
         }
 
+        function initializeDatePickerFromUrl() {
+            const date = new URLSearchParams(window.location.search).get("date");
+            if (!date) return;
+            const normalized = date.replaceAll("/", "-");
+            if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+                datePicker.value = normalized;
+            }
+        }
+
         function showFallbackNotice(actualDateText) {
             const today = new Date();
             const todayText = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}`;
@@ -2069,7 +2078,9 @@
             let lastError = null;
             for (let attempt = 0; attempt < retries; attempt += 1) {
                 try {
-                    const response = await fetch(`/api/report${query}`, { cache: "no-store" });
+                    const response = await fetch(`/api/report${query}`, {
+                        cache: query.includes("refresh=1") ? "no-store" : "default",
+                    });
                     const contentType = response.headers.get("content-type") || "";
                     const rawText = await response.text();
 
@@ -2150,6 +2161,7 @@
                 setTimeout(() => { shareBtn.textContent = "分享連結"; }, 1200);
             } catch (_) {}
         });
+        initializeDatePickerFromUrl();
         loadReport();
     </script>
 </body>

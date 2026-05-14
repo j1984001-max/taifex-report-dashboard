@@ -10,6 +10,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server.py index.html ./
+COPY snapshots ./snapshots
 
 EXPOSE 8000
 

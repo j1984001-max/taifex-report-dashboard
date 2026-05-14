@@ -242,6 +242,26 @@ def snapshot_paths(report_date: str) -> tuple[Path, Path]:
     return SNAPSHOT_DIR / f"{safe_date}.json", SNAPSHOT_DIR / f"{safe_date}.pdf"
 
 
+def available_snapshot_dates() -> list[str]:
+    dates: list[str] = []
+    for path in SNAPSHOT_DIR.glob("*.json"):
+        try:
+            datetime.strptime(path.stem, "%Y-%m-%d")
+        except ValueError:
+            continue
+        dates.append(path.stem.replace("-", "/"))
+    return sorted(dates, reverse=True)
+
+
+def latest_snapshot_date(max_date: str | None = None) -> str | None:
+    max_dt = datetime.strptime(max_date, "%Y/%m/%d").date() if max_date else None
+    for date_text in available_snapshot_dates():
+        if max_dt and datetime.strptime(date_text, "%Y/%m/%d").date() > max_dt:
+            continue
+        return date_text
+    return None
+
+
 def load_snapshot(report_date: str, report_url: str) -> tuple[dict[str, Any], bytes | None] | None:
     json_path, pdf_path = snapshot_paths(report_date)
     if not json_path.exists():
@@ -250,7 +270,6 @@ def load_snapshot(report_date: str, report_url: str) -> tuple[dict[str, Any], by
         report = json.loads(json_path.read_text(encoding="utf-8"))
         report["meta"]["reportUrl"] = report_url
         normalize_important_dates(report)
-        normalize_high_low_alignment(report)
         pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
         return report, pdf_data
     except Exception:
@@ -281,7 +300,6 @@ def load_cached_report(key: str, ttl: int) -> tuple[dict[str, Any], bytes | None
     try:
         report = json.loads(json_path.read_text(encoding="utf-8"))
         normalize_important_dates(report)
-        normalize_high_low_alignment(report)
         pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
     except Exception:
         return None
@@ -315,6 +333,16 @@ def invalidate_cached_report(key: str) -> None:
 
 
 def cached_report(report_date: str | None, report_url: str, force_refresh: bool = False) -> tuple[dict[str, Any], str]:
+    if not report_date and not force_refresh:
+        snapshot_date = latest_snapshot_date(latest_business_day()) or latest_snapshot_date()
+        if snapshot_date:
+            snapshot = load_snapshot(snapshot_date, report_url)
+            if snapshot:
+                report, pdf_data = snapshot
+                key = cache_key(snapshot_date, report_url)
+                save_cached_report(key, report, pdf_data)
+                return report, key
+
     candidate_dates = [report_date] if report_date else []
     if not candidate_dates:
         candidate = latest_business_day()
@@ -4654,13 +4682,13 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/report":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "public, max-age=300")
+            self.send_header("Cache-Control", "public, max-age=900, stale-while-revalidate=3600")
             self.end_headers()
             return
         if parsed.path == "/api/report.pdf":
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
-            self.send_header("Cache-Control", "public, max-age=300")
+            self.send_header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
             self.end_headers()
             return
         if parsed.path == "/":
@@ -4695,7 +4723,7 @@ class Handler(SimpleHTTPRequestHandler):
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "public, max-age=300")
+            self.send_header("Cache-Control", "public, max-age=900, stale-while-revalidate=3600")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -4729,7 +4757,7 @@ class Handler(SimpleHTTPRequestHandler):
             filename_date = payload["meta"]["date"].replace("/", "-")
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
-            self.send_header("Cache-Control", "public, max-age=300")
+            self.send_header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
             self.send_header("Content-Disposition", f'attachment; filename="{filename_date}-taifex-report.pdf"')
             self.send_header("Content-Length", str(len(pdf_data)))
             self.end_headers()

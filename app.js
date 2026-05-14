@@ -601,6 +601,15 @@
             datePicker.value = `${y}-${m}-${d}`;
         }
 
+        function initializeDatePickerFromUrl() {
+            const date = new URLSearchParams(window.location.search).get("date");
+            if (!date) return;
+            const normalized = date.replaceAll("/", "-");
+            if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+                datePicker.value = normalized;
+            }
+        }
+
         async function loadReport() {
             refreshBtn.disabled = true;
             errorBox.classList.add("hidden");
@@ -608,7 +617,9 @@
                 const date = currentSelectedDate();
                 showLoadingState(date ? `正在抓取 ${date.replaceAll("-", "/")} 的歷史資料，請稍候。` : "正在抓取最近一個營業日資料，請稍候。");
                 const query = date ? `?date=${encodeURIComponent(date.replaceAll("-", "/"))}` : "";
-                const response = await fetch(`/api/report${query}`, { cache: "no-store" });
+                const response = await fetch(`/api/report${query}`, {
+                    cache: query.includes("refresh=1") ? "no-store" : "default",
+                });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
                 syncDatePicker(data.meta.date);
@@ -646,4 +657,5 @@
                 setTimeout(() => { shareBtn.textContent = "分享連結"; }, 1200);
             } catch (_) {}
         });
+        initializeDatePickerFromUrl();
         loadReport();

@@ -8,14 +8,16 @@ import re
 import ssl
 import smtplib
 import subprocess
+import threading
 import time
 import urllib.parse
 import urllib.request
 import uuid
 from email.message import EmailMessage
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from server import PUBLIC_BASE_URL, build_report_pdf, build_telegram_important_date_lines, cached_report, save_snapshot
+from server import Handler, PUBLIC_BASE_URL, build_report_pdf, build_telegram_important_date_lines, cached_report, save_snapshot
 
 
 TELEGRAM_LIMIT = 3500
@@ -241,88 +243,84 @@ def capture_report_screenshots(report_date: str) -> dict[str, bytes]:
     except Exception:
         return {}
 
-    url = f"{PUBLIC_BASE_URL}/?date={urllib.parse.quote(report_date)}"
+    local_server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    local_thread = threading.Thread(target=local_server.serve_forever, daemon=True)
+    local_thread.start()
+    local_base_url = f"http://127.0.0.1:{local_server.server_port}"
+    url = f"{local_base_url}/?date={urllib.parse.quote(report_date)}"
     screenshots: dict[str, bytes] = {}
 
-    # Warm up Render before launching a browser (avoid cold-start "Application loading").
     try:
-        warm_req = urllib.request.Request(
-            f"{PUBLIC_BASE_URL}/api/report?date={urllib.parse.quote(report_date)}",
-            headers={"User-Agent": "taifex-daily-push/1.0"},
-        )
-        with urllib.request.urlopen(warm_req, timeout=30) as resp:
-            resp.read(1024)
-    except Exception:
-        pass
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            # Higher pixel density makes small table text readable in Telegram.
+            page = browser.new_page(viewport={"width": 1400, "height": 2200}, device_scale_factor=2)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        # Higher pixel density makes small table text readable in Telegram.
-        page = browser.new_page(viewport={"width": 1400, "height": 2200}, device_scale_factor=2)
-
-        last_error: Exception | None = None
-        for _ in range(3):
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=120_000)
-                # The page renders sections after fetching /api/report, so wait for C/D heading text.
-                page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照").first.wait_for(timeout=120_000)
-                page.locator("h2", has_text="C. 大額交易人未沖銷詳細版").first.wait_for(timeout=120_000)
-                page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版").first.wait_for(timeout=120_000)
-
-                high_low_block = page.locator("div.mt-5").filter(
-                    has=page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照")
-                ).first
-                if high_low_block.count() > 0:
-                    high_low_grid = high_low_block.locator("div.grid.gap-4").first
-                    if high_low_grid.count() > 0:
-                        screenshots["high_low_cards"] = high_low_grid.screenshot(type="png")
-                    summary_heading = high_low_block.locator("h5", has_text="最近 30 個營業日高低點彙整表").first
-                    if summary_heading.count() > 0:
-                        summary_panel = summary_heading.locator("xpath=..").first
-                        screenshots["high_low_summary"] = summary_panel.screenshot(type="png")
-                    screenshots["high_low"] = high_low_block.screenshot(type="png")
-
-                c_section = page.locator("section.section-card").filter(
-                    has=page.locator("h2", has_text="C. 大額交易人未沖銷詳細版")
-                ).first
-                c_section.wait_for(timeout=60_000)
-                c_table = c_section.locator(".table-wrap").first
-                if c_table.count() > 0:
-                    screenshots["c_large"] = c_table.screenshot(type="png")
-                else:
-                    screenshots["c_large"] = c_section.screenshot(type="png")
-
-                d_section = page.locator("section.section-card").filter(
-                    has=page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版")
-                ).first
-                d_section.wait_for(timeout=60_000)
-
-                # 1) 三大法人買賣權未平倉（WantGoo-style table; default=外資）
-                inst_panel = d_section.locator("#dInstitutionPanels .d-inst-panel:not(.hidden)").first
-                if inst_panel.count() > 0:
-                    screenshots["d_institutions"] = inst_panel.screenshot(type="png")
-                else:
-                    inst_container = d_section.locator("#dInstitutionPanels").first
-                    if inst_container.count() > 0:
-                        screenshots["d_institutions"] = inst_container.screenshot(type="png")
-
-                # 2) 大額交易人買賣權未平倉（WantGoo-style table; default=月選）
-                large_panel = d_section.locator("#dLargeTraderPanels .d-large-panel:not(.hidden)").first
-                if large_panel.count() > 0:
-                    screenshots["d_specific"] = large_panel.screenshot(type="png")
-                else:
-                    large_container = d_section.locator("#dLargeTraderPanels").first
-                    if large_container.count() > 0:
-                        screenshots["d_specific"] = large_container.screenshot(type="png")
-                break
-            except Exception as exc:
-                last_error = exc
+            for _ in range(3):
                 try:
-                    page.wait_for_timeout(5000)
-                    page.reload(wait_until="domcontentloaded", timeout=120_000)
+                    page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                    # The page renders sections after fetching /api/report, so wait for C/D heading text.
+                    page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照").first.wait_for(timeout=60_000)
+                    page.locator("h2", has_text="C. 大額交易人未沖銷詳細版").first.wait_for(timeout=60_000)
+                    page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版").first.wait_for(timeout=60_000)
+
+                    high_low_block = page.locator("div.mt-5").filter(
+                        has=page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照")
+                    ).first
+                    if high_low_block.count() > 0:
+                        high_low_grid = high_low_block.locator("div.grid.gap-4").first
+                        if high_low_grid.count() > 0:
+                            screenshots["high_low_cards"] = high_low_grid.screenshot(type="png")
+                        summary_heading = high_low_block.locator("h5", has_text="最近 30 個營業日高低點彙整表").first
+                        if summary_heading.count() > 0:
+                            summary_panel = summary_heading.locator("xpath=..").first
+                            screenshots["high_low_summary"] = summary_panel.screenshot(type="png")
+                        screenshots["high_low"] = high_low_block.screenshot(type="png")
+
+                    c_section = page.locator("section.section-card").filter(
+                        has=page.locator("h2", has_text="C. 大額交易人未沖銷詳細版")
+                    ).first
+                    c_section.wait_for(timeout=30_000)
+                    c_table = c_section.locator(".table-wrap").first
+                    if c_table.count() > 0:
+                        screenshots["c_large"] = c_table.screenshot(type="png")
+                    else:
+                        screenshots["c_large"] = c_section.screenshot(type="png")
+
+                    d_section = page.locator("section.section-card").filter(
+                        has=page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版")
+                    ).first
+                    d_section.wait_for(timeout=30_000)
+
+                    # 1) 三大法人買賣權未平倉（WantGoo-style table; default=外資）
+                    inst_panel = d_section.locator("#dInstitutionPanels .d-inst-panel:not(.hidden)").first
+                    if inst_panel.count() > 0:
+                        screenshots["d_institutions"] = inst_panel.screenshot(type="png")
+                    else:
+                        inst_container = d_section.locator("#dInstitutionPanels").first
+                        if inst_container.count() > 0:
+                            screenshots["d_institutions"] = inst_container.screenshot(type="png")
+
+                    # 2) 大額交易人買賣權未平倉（WantGoo-style table; default=月選）
+                    large_panel = d_section.locator("#dLargeTraderPanels .d-large-panel:not(.hidden)").first
+                    if large_panel.count() > 0:
+                        screenshots["d_specific"] = large_panel.screenshot(type="png")
+                    else:
+                        large_container = d_section.locator("#dLargeTraderPanels").first
+                        if large_container.count() > 0:
+                            screenshots["d_specific"] = large_container.screenshot(type="png")
+                    break
                 except Exception:
-                    pass
-        browser.close()
+                    try:
+                        page.wait_for_timeout(2000)
+                        page.reload(wait_until="domcontentloaded", timeout=60_000)
+                    except Exception:
+                        pass
+            browser.close()
+    finally:
+        local_server.shutdown()
+        local_server.server_close()
+        local_thread.join(timeout=5)
 
     return screenshots
 
