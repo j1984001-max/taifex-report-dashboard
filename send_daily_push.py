@@ -17,7 +17,16 @@ from email.message import EmailMessage
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from server import Handler, PUBLIC_BASE_URL, build_report_pdf, build_telegram_important_date_lines, cached_report, save_snapshot
+from server import (
+    Handler,
+    PUBLIC_BASE_URL,
+    build_report_pdf,
+    build_telegram_important_date_lines,
+    cached_report,
+    latest_business_day,
+    save_snapshot,
+    snapshot_paths,
+)
 
 
 TELEGRAM_LIMIT = 3500
@@ -480,6 +489,17 @@ def main() -> None:
     args = parser.parse_args()
 
     requested_date = args.date
+    expected_date = requested_date or latest_business_day()
+    if not requested_date and os.environ.get("SKIP_EXISTING_DAILY_PUSH", "1") == "1":
+        json_path, _ = snapshot_paths(expected_date)
+        if json_path.exists():
+            print(json.dumps({
+                "date": expected_date,
+                "skipped": True,
+                "reason": "snapshot_already_exists",
+            }, ensure_ascii=False))
+            return
+
     report_url = f"{PUBLIC_BASE_URL}/?date={requested_date}" if requested_date else PUBLIC_BASE_URL
     attempts = args.max_retries + 1
     last_reason = "unknown"
@@ -488,6 +508,10 @@ def main() -> None:
         report, _ = cached_report(requested_date, report_url, force_refresh=True)
         # Only block send when core tables are missing. E/G delays happen after 15:00.
         ready, last_reason = report_is_ready(report, mode="minimal")
+        actual_date = str(report.get("meta", {}).get("date", ""))
+        if ready and not requested_date and actual_date != expected_date:
+            ready = False
+            last_reason = f"{expected_date} 尚未發布，最新可用資料仍為 {actual_date or '缺資料'}"
         if ready:
             break
         if index < attempts - 1:
