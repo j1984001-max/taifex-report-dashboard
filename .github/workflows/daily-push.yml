@@ -2,12 +2,15 @@ name: Daily TAIFEX Push
 
 on:
   schedule:
-    # Start before the expected TAIFEX release and poll until today's data is ready.
-    # 14:20 Asia/Taipei, Monday-Friday.
-    - cron: "20 6 * * 1-5"
+    # Start very early because GitHub's free scheduler has recently been 3-4h late.
+    # 10:40 Asia/Taipei, Monday-Friday. The job polls until today's report is ready.
+    - cron: "40 2 * * 1-5"
     # Backup trigger in case GitHub drops or heavily delays the first schedule.
-    # 15:20 Asia/Taipei, Monday-Friday.
-    - cron: "20 7 * * 1-5"
+    # 12:40 Asia/Taipei, Monday-Friday.
+    - cron: "40 4 * * 1-5"
+    # Final backup. Concurrency plus snapshot-skip prevents duplicate sends.
+    # 14:10 Asia/Taipei, Monday-Friday.
+    - cron: "10 6 * * 1-5"
   workflow_dispatch:
 
 concurrency:
@@ -17,7 +20,7 @@ concurrency:
 jobs:
   daily-push:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 360
     permissions:
       contents: write
 
@@ -51,7 +54,7 @@ jobs:
           GMAIL_TO: ${{ secrets.GMAIL_TO }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
-          REPORT_MAX_RETRIES: "90"
+          REPORT_MAX_RETRIES: "180"
           REPORT_RETRY_DELAY_SECONDS: "120"
         run: python3 send_daily_push.py | tee daily-push-result.json
 

@@ -515,6 +515,14 @@ def main() -> None:
         if ready:
             break
         if index < attempts - 1:
+            print(json.dumps({
+                "waiting": True,
+                "attempt": index + 1,
+                "attempts": attempts,
+                "expectedDate": expected_date,
+                "reason": last_reason,
+                "retryDelaySeconds": args.retry_delay,
+            }, ensure_ascii=False), flush=True)
             time.sleep(args.retry_delay)
     if report is None:
         raise RuntimeError("無法建立報表")
