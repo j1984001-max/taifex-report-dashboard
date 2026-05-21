@@ -2306,6 +2306,195 @@ def build_large_trader_opt_history_rows(end_date: str, monthly_code: str, *, cou
     return rows
 
 
+def large_trader_fut_history_entry(
+    date_text: str,
+    row: dict[str, Any],
+    prev_row: dict[str, Any] | None,
+) -> dict[str, Any]:
+    def delta(key: str) -> int | None:
+        if not prev_row:
+            return None
+        if row.get(key) is None or prev_row.get(key) is None:
+            return None
+        return int(row[key]) - int(prev_row[key])
+
+    return {
+        "date": date_text,
+        "contractLabel": row.get("contractLabel") or "月契約",
+        "longTop5Qty": row.get("longTop5Qty"),
+        "longTop5Day": delta("longTop5Qty"),
+        "shortTop5Qty": row.get("shortTop5Qty"),
+        "shortTop5Day": delta("shortTop5Qty"),
+        "longTop10Qty": row.get("longTop10Qty"),
+        "longTop10Day": delta("longTop10Qty"),
+        "shortTop10Qty": row.get("shortTop10Qty"),
+        "shortTop10Day": delta("shortTop10Qty"),
+        "longTop5SpecificQty": row.get("longTop5SpecificQty"),
+        "longTop5SpecificDay": delta("longTop5SpecificQty"),
+        "shortTop5SpecificQty": row.get("shortTop5SpecificQty"),
+        "shortTop5SpecificDay": delta("shortTop5SpecificQty"),
+        "longTop10SpecificQty": row.get("longTop10SpecificQty"),
+        "longTop10SpecificDay": delta("longTop10SpecificQty"),
+        "shortTop10SpecificQty": row.get("shortTop10SpecificQty"),
+        "shortTop10SpecificDay": delta("shortTop10SpecificQty"),
+    }
+
+
+def large_trader_opt_history_entry(
+    date_text: str,
+    row: dict[str, Any],
+    prev_row: dict[str, Any] | None,
+) -> dict[str, Any]:
+    def delta(key: str) -> int | None:
+        if not prev_row:
+            return None
+        if row.get(key) is None or prev_row.get(key) is None:
+            return None
+        return int(row[key]) - int(prev_row[key])
+
+    return {
+        "date": date_text,
+        "contractType": row.get("contractType"),
+        "contractLabel": row.get("contractLabel"),
+        "optionSide": row.get("optionSide"),
+        "optionLabel": row.get("optionLabel"),
+        "longTop5Qty": row.get("longTop5Qty"),
+        "longTop5Day": delta("longTop5Qty"),
+        "shortTop5Qty": row.get("shortTop5Qty"),
+        "shortTop5Day": delta("shortTop5Qty"),
+        "longTop10Qty": row.get("longTop10Qty"),
+        "longTop10Day": delta("longTop10Qty"),
+        "shortTop10Qty": row.get("shortTop10Qty"),
+        "shortTop10Day": delta("shortTop10Qty"),
+        "longTop5SpecificQty": row.get("longTop5SpecificQty"),
+        "longTop5SpecificDay": delta("longTop5SpecificQty"),
+        "shortTop5SpecificQty": row.get("shortTop5SpecificQty"),
+        "shortTop5SpecificDay": delta("shortTop5SpecificQty"),
+        "longTop10SpecificQty": row.get("longTop10SpecificQty"),
+        "longTop10SpecificDay": delta("longTop10SpecificQty"),
+        "shortTop10SpecificQty": row.get("shortTop10SpecificQty"),
+        "shortTop10SpecificDay": delta("shortTop10SpecificQty"),
+        "marketOi": row.get("marketOi"),
+    }
+
+
+def merge_history_entry(rows: list[dict[str, Any]], entry: dict[str, Any], *, match_keys: tuple[str, ...]) -> list[dict[str, Any]]:
+    return [entry] + [
+        row for row in rows
+        if any(row.get(key) != entry.get(key) for key in match_keys)
+    ]
+
+
+def merge_history_entries(
+    rows: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
+    *,
+    match_keys: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for row in entries + rows:
+        key = tuple(row.get(field) for field in match_keys)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(row)
+    return merged
+
+
+def next_month_contract(contract: str) -> str | None:
+    if not re.fullmatch(r"\d{6}", contract or ""):
+        return None
+    year = int(contract[:4])
+    month = int(contract[4:])
+    month += 1
+    if month > 12:
+        year += 1
+        month = 1
+    return f"{year}{month:02d}"
+
+
+def build_range_large_trader_fut_history_rows(range_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    cache: dict[tuple[str, str], list[dict[str, Any]] | None] = {}
+    prev_cache: dict[tuple[str, str], tuple[str | None, list[dict[str, Any]] | None]] = {}
+    for item in range_rows:
+        date_text = item.get("date")
+        contract = item.get("contract")
+        if not date_text or not contract:
+            continue
+        current_rows = cache.setdefault((date_text, contract), fetch_large_trader_for_date(date_text, contract))
+        current = next((row for row in (current_rows or []) if row.get("contractType") == "monthly"), None)
+        effective_contract = contract
+        if not current:
+            rollover_contract = next_month_contract(contract)
+            if rollover_contract:
+                rollover_rows = cache.setdefault(
+                    (date_text, rollover_contract),
+                    fetch_large_trader_for_date(date_text, rollover_contract),
+                )
+                rollover_current = next(
+                    (row for row in (rollover_rows or []) if row.get("contractType") == "monthly"),
+                    None,
+                )
+                if rollover_current:
+                    current = rollover_current
+                    effective_contract = rollover_contract
+        if not current:
+            continue
+        _, prev_rows = prev_cache.setdefault(
+            (date_text, effective_contract),
+            fetch_previous_large_trader_business_day(date_text, effective_contract),
+        )
+        prev = next((row for row in (prev_rows or []) if row.get("contractType") == "monthly"), None)
+        if not prev:
+            prev = current
+        rows.append(large_trader_fut_history_entry(date_text, current, prev))
+    return rows
+
+
+def build_range_large_trader_opt_history_rows(range_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    cache: dict[tuple[str, str], list[dict[str, Any]] | None] = {}
+    prev_cache: dict[tuple[str, str], tuple[str | None, list[dict[str, Any]] | None]] = {}
+    for item in range_rows:
+        date_text = item.get("date")
+        contract = item.get("contract")
+        if not date_text or not contract:
+            continue
+        current_rows = cache.setdefault((date_text, contract), fetch_large_trader_option_for_date(date_text, contract))
+        effective_contract = contract
+        if not any(row.get("contractType") == "monthly" for row in (current_rows or [])):
+            rollover_contract = next_month_contract(contract)
+            if rollover_contract:
+                rollover_rows = cache.setdefault(
+                    (date_text, rollover_contract),
+                    fetch_large_trader_option_for_date(date_text, rollover_contract),
+                )
+                if any(row.get("contractType") == "monthly" for row in (rollover_rows or [])):
+                    current_rows = rollover_rows
+                    effective_contract = rollover_contract
+        _, prev_rows = prev_cache.setdefault(
+            (date_text, effective_contract),
+            fetch_previous_large_trader_option_business_day(date_text, effective_contract),
+        )
+        for row in current_rows or []:
+            if row.get("contractType") != "monthly":
+                continue
+            prev = next(
+                (
+                    prev_row for prev_row in (prev_rows or [])
+                    if prev_row.get("contractType") == row.get("contractType")
+                    and prev_row.get("optionSide") == row.get("optionSide")
+                ),
+                None,
+            )
+            if not prev:
+                prev = row
+            rows.append(large_trader_opt_history_entry(date_text, row, prev))
+    return rows
+
+
 def build_foreign_futures_history_rows(end_date: str, *, count: int = 5) -> list[dict[str, Any]]:
     series = fetch_business_day_series(end_date, count=count + 1, fetch_fn=fetch_futures_rows_for_date)
     rows: list[dict[str, Any]] = []
@@ -4159,6 +4348,49 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     option_cycle_start_rows = option_contracts if monthly_cycle_start_date == base_date else fetch_option_rows_for_date(monthly_cycle_start_date)
     large_previous_date, large_previous_rows = fetch_previous_large_trader_business_day(base_date, tx_reference["contract"])
     large_option_previous_date, large_option_previous_rows = fetch_previous_large_trader_option_business_day(base_date, tx_reference["contract"])
+    previous_by_type = {row["contractType"]: row for row in (large_previous_rows or [])}
+    option_prev_map = {
+        (row["contractType"], row["optionSide"]): row
+        for row in (large_option_previous_rows or [])
+    }
+
+    current_monthly_large = next((row for row in large_trader_rows if row["contractType"] == "monthly"), None)
+    if current_monthly_large:
+        current_fut_entry = large_trader_fut_history_entry(
+            base_date,
+            current_monthly_large,
+            previous_by_type.get("monthly"),
+        )
+        large_trader_fut_history_rows = merge_history_entry(
+            large_trader_fut_history_rows,
+            current_fut_entry,
+            match_keys=("date", "contractLabel"),
+        )
+        high_low_large_trader_fut_history_rows = merge_history_entry(
+            high_low_large_trader_fut_history_rows,
+            current_fut_entry,
+            match_keys=("date", "contractLabel"),
+        )
+
+    for row in large_trader_option_rows:
+        if row.get("contractType") != "monthly":
+            continue
+        current_opt_entry = large_trader_opt_history_entry(
+            base_date,
+            row,
+            option_prev_map.get((row.get("contractType"), row.get("optionSide"))),
+        )
+        large_trader_opt_history_rows = merge_history_entry(
+            large_trader_opt_history_rows,
+            current_opt_entry,
+            match_keys=("date", "contractType", "optionSide"),
+        )
+        high_low_large_trader_opt_history_rows = merge_history_entry(
+            high_low_large_trader_opt_history_rows,
+            current_opt_entry,
+            match_keys=("date", "contractType", "optionSide"),
+        )
+
     large_cycle_rows = {
         "weekly": large_trader_rows if weekly_cycle_start_date == base_date else fetch_large_trader_for_date(weekly_cycle_start_date, tx_reference["contract"]),
         "monthly": large_trader_rows if monthly_cycle_start_date == base_date else fetch_large_trader_for_date(monthly_cycle_start_date, tx_reference["contract"]),
@@ -4204,6 +4436,20 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     important_dates = build_important_dates(base_date)
     recent_futures_spot_ranges = build_recent_futures_spot_range_rows(base_date, count=5)
     recent_futures_spot_ranges_30 = build_recent_futures_spot_range_rows(base_date, count=30)
+    range_fut_history_rows = build_range_large_trader_fut_history_rows(recent_futures_spot_ranges_30)
+    if range_fut_history_rows:
+        high_low_large_trader_fut_history_rows = merge_history_entries(
+            high_low_large_trader_fut_history_rows,
+            range_fut_history_rows,
+            match_keys=("date", "contractLabel"),
+        )
+    range_opt_history_rows = build_range_large_trader_opt_history_rows(recent_futures_spot_ranges_30)
+    if range_opt_history_rows:
+        high_low_large_trader_opt_history_rows = merge_history_entries(
+            high_low_large_trader_opt_history_rows,
+            range_opt_history_rows,
+            match_keys=("date", "contractType", "optionSide"),
+        )
     high_low_alignment_rows = build_high_low_specific_alignment_rows(
         recent_futures_spot_ranges,
         high_low_large_trader_fut_history_rows,
@@ -4444,7 +4690,6 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         f"外資臺指選擇權合計交易淨額 {format_signed(next(row['tradeNetQty'] for row in option_agg_contracts if row['institution'] == '外資'))} 口，合計未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_agg_contracts if row['institution'] == '外資'))} 口。",
         f"自營商臺指選擇權合計未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_agg_contracts if row['institution'] == '自營商'))} 口；投信合計未平倉淨額 {format_signed(next(row['oiNetQty'] for row in option_agg_contracts if row['institution'] == '投信'))} 口。",
     ]
-    previous_by_type = {row["contractType"]: row for row in (large_previous_rows or [])}
     cycle_by_type = {
         "weekly": {row["contractType"]: row for row in (large_cycle_rows.get("weekly") or [])}.get("weekly"),
         "monthly": {row["contractType"]: row for row in (large_cycle_rows.get("monthly") or [])}.get("monthly"),
@@ -4535,10 +4780,6 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
             f"自 {cycle_label_date} 起累積前五大 {format_signed(short5_cycle)}、前十大 {format_signed(short10_cycle)}。"
         )
 
-    option_prev_map = {
-        (row["contractType"], row["optionSide"]): row
-        for row in large_option_previous_rows
-    }
     option_cycle_map = {
         (row["contractType"], row["optionSide"]): row
         for key, rows in large_option_cycle_rows.items()
