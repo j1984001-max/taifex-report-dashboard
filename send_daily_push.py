@@ -429,10 +429,21 @@ def send_email(report: dict[str, object], pdf_data: bytes) -> str:
     pdf_url = f"{PUBLIC_BASE_URL}/api/report.pdf?date={report_date}"
 
     msg = EmailMessage()
-    msg["Subject"] = f"{report_date} 台指期貨 / 選擇權籌碼完整報告"
+    high_low_focus = build_high_low_focus_overview(report)
+    quick_overview = build_quick_overview(report)
+    email_body = "\n\n".join([
+        high_low_focus,
+        quick_overview,
+        "完整文字版",
+        report["email"],
+        f"完整網頁：{page_url}",
+        f"PDF 下載：{pdf_url}",
+    ])
+
+    msg["Subject"] = f"{report_date} 台指期權籌碼速覽與完整報告"
     msg["From"] = user
     msg["To"] = to_addr
-    msg.set_content(f"{report['email']}\n\n完整網頁：{page_url}\nPDF 下載：{pdf_url}\n")
+    msg.set_content(email_body)
     msg.add_attachment(
         pdf_data,
         maintype="application",
@@ -539,7 +550,8 @@ def main() -> None:
     high_low_messages = split_telegram_text(high_low_focus)
     quick_overview = build_quick_overview(report)
     quick_messages = split_telegram_text(quick_overview)
-    full_messages = split_telegram_text(decorate_telegram_text(report["telegram"]))
+    send_full_telegram = os.environ.get("SEND_FULL_TELEGRAM", "0") == "1"
+    full_messages = split_telegram_text(decorate_telegram_text(report["telegram"])) if send_full_telegram else []
 
     results = []
     for message in high_low_messages:
@@ -622,8 +634,8 @@ def main() -> None:
     pdf_data = build_report_pdf(report)
     save_snapshot(report["meta"]["date"], report, pdf_data)
 
-    # Full report is optional; if not ready, still send the simplified full message.
-    full_ready, _ = report_is_ready(report, mode="full")
+    # Full Telegram text is optional. By default, avoid sending the older text-only
+    # complete-report format after the new overview screenshots.
     for message in full_messages:
         results.append(send_telegram_message(token, args.chat_id, message))
 
@@ -634,6 +646,7 @@ def main() -> None:
         "date": report["meta"]["date"],
         "telegramMessages": len(results),
         "telegramMessageIds": [item.get("result", {}).get("message_id") for item in results],
+        "sentFullTelegram": send_full_telegram,
         "emailTo": email_to,
         "publishResult": publish_result,
     }, ensure_ascii=False))
