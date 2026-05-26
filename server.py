@@ -343,6 +343,20 @@ def cached_report(report_date: str | None, report_url: str, force_refresh: bool 
                 save_cached_report(key, report, pdf_data)
                 return report, key
 
+    if report_date and not force_refresh and report_date == latest_business_day():
+        json_path, _ = snapshot_paths(report_date)
+        if not json_path.exists():
+            fallback_date = latest_snapshot_date(previous_business_day(report_date)) or latest_snapshot_date()
+            if fallback_date:
+                snapshot = load_snapshot(fallback_date, report_url)
+                if snapshot:
+                    report, pdf_data = snapshot
+                    report.setdefault("meta", {})["requestedDate"] = report_date
+                    report["meta"]["fallbackReason"] = "requested_snapshot_not_ready"
+                    key = cache_key(fallback_date, report_url)
+                    save_cached_report(key, report, pdf_data)
+                    return report, key
+
     candidate_dates = [report_date] if report_date else []
     if not candidate_dates:
         candidate = latest_business_day()

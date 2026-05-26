@@ -530,8 +530,9 @@ def main() -> None:
     if not ready:
         raise RuntimeError(f"核心表格仍未完整：{last_reason}")
 
-    pdf_data = build_report_pdf(report)
-    save_snapshot(report["meta"]["date"], report, pdf_data)
+    # Save the JSON snapshot first so the local screenshot server can render immediately.
+    # PDF generation and email are slower and should not hold up the Telegram screenshots.
+    save_snapshot(report["meta"]["date"], report)
 
     token = load_telegram_token()
     high_low_focus = build_high_low_focus_overview(report)
@@ -617,6 +618,9 @@ def main() -> None:
             "quickOnly": True,
         }, ensure_ascii=False))
         return
+
+    pdf_data = build_report_pdf(report)
+    save_snapshot(report["meta"]["date"], report, pdf_data)
 
     # Full report is optional; if not ready, still send the simplified full message.
     full_ready, _ = report_is_ready(report, mode="full")

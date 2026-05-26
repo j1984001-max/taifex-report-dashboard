@@ -101,6 +101,15 @@
             });
         }
 
+        function bindDeferredSectionControls() {
+            const eSection = document.getElementById("section-e");
+            if (eSection) {
+                eSection.querySelectorAll("[data-sr-target]").forEach((node) => {
+                    node.addEventListener("click", () => activateSrChart(eSection, node.getAttribute("data-sr-target")));
+                });
+            }
+        }
+
         function showLoadingState(message = "正在抓取最近一個營業日資料，請稍候。") {
             reportRoot.innerHTML = `
                 <section class="loading-card">
@@ -551,7 +560,10 @@
             const tables = report.tables;
             reportDate.textContent = `資料日期：${report.meta.date}`;
             reportGeneratedAt.textContent = `最後更新：${report.meta.generatedAt || "缺資料"}`;
-            reportSourceHint.textContent = `來源：期交所官方頁面整理${report.meta.pcRatioMethod ? ` / P-C Ratio：${report.meta.pcRatioMethod}` : ""}`;
+            const fallbackHint = report.meta.fallbackReason === "requested_snapshot_not_ready" && report.meta.requestedDate
+                ? ` / ${report.meta.requestedDate} 快照產生中，先顯示最新可用資料`
+                : "";
+            reportSourceHint.textContent = `來源：期交所官方頁面整理${report.meta.pcRatioMethod ? ` / P-C Ratio：${report.meta.pcRatioMethod}` : ""}${fallbackHint}`;
             shareLink.value = report.meta.reportUrl || window.location.href;
             mobileShareUrl.textContent = report.meta.reportUrl || window.location.href;
             if (window.history && window.history.replaceState) {
@@ -563,6 +575,12 @@
                 renderContractTable(tables.B, false),
                 renderTableC(tables.C),
                 renderContractTable(tables.D, true),
+                `<div id="deferredReportSections" class="space-y-6"></div>`,
+            ].join("");
+
+            applySectionAnchors();
+
+            const deferredSections = [
                 renderTableE(tables.E),
                 renderTableF(tables.F),
                 renderTableG(tables.G),
@@ -571,13 +589,13 @@
                 renderCopySection("J. Email 完整版", report.email),
             ].join("");
 
-            applySectionAnchors();
-            const eSection = document.getElementById("section-e");
-            if (eSection) {
-                eSection.querySelectorAll("[data-sr-target]").forEach((node) => {
-                    node.addEventListener("click", () => activateSrChart(eSection, node.getAttribute("data-sr-target")));
-                });
-            }
+            window.setTimeout(() => {
+                const target = document.getElementById("deferredReportSections");
+                if (!target) return;
+                target.innerHTML = deferredSections;
+                applySectionAnchors();
+                bindDeferredSectionControls();
+            }, 0);
         }
 
         function currentSelectedDate() {
@@ -617,9 +635,17 @@
                 const date = currentSelectedDate();
                 showLoadingState(date ? `正在抓取 ${date.replaceAll("-", "/")} 的歷史資料，請稍候。` : "正在抓取最近一個營業日資料，請稍候。");
                 const query = date ? `?date=${encodeURIComponent(date.replaceAll("-", "/"))}` : "";
-                const response = await fetch(`/api/report${query}`, {
-                    cache: query.includes("refresh=1") ? "no-store" : "default",
-                });
+                const controller = new AbortController();
+                const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+                let response;
+                try {
+                    response = await fetch(`/api/report${query}`, {
+                        cache: query.includes("refresh=1") ? "no-store" : "default",
+                        signal: controller.signal,
+                    });
+                } finally {
+                    window.clearTimeout(timeoutId);
+                }
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
                 syncDatePicker(data.meta.date);

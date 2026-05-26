@@ -1987,23 +1987,8 @@
                 renderContractTable(tables.B, false),
                 renderTableC(tables.C, marketHistory),
                 renderTableD(tables.D, marketHistory),
-                renderTableE(tables.E),
-                renderTableF(tables.F),
-                renderTableG(tables.G),
-                renderAnalysis(report),
-                renderCopySection("telegram-copy", "I. Telegram 精簡版", report.telegram),
-                renderCopySection("email-copy", "J. Email 完整版", report.email),
+                `<div id="deferredReportSections" class="space-y-6"></div>`,
             ].join("");
-
-            const eSection = Array.from(reportRoot.querySelectorAll(".section-card")).find((sectionNode) => {
-                const heading = sectionNode.querySelector("h2");
-                return heading && heading.textContent.trim().startsWith("E.");
-            });
-            if (eSection) {
-                eSection.querySelectorAll("[data-sr-target]").forEach((node) => {
-                    node.addEventListener("click", () => activateSrChart(eSection, node.getAttribute("data-sr-target")));
-                });
-            }
 
             const dInstSelect = reportRoot.querySelector("#dInstitutionSelect");
             const dInstPanels = reportRoot.querySelector("#dInstitutionPanels");
@@ -2025,7 +2010,32 @@
                     });
                 });
             }
-            bindLazyCopySections();
+
+            const deferredSections = [
+                renderTableE(tables.E),
+                renderTableF(tables.F),
+                renderTableG(tables.G),
+                renderAnalysis(report),
+                renderCopySection("telegram-copy", "I. Telegram 精簡版", report.telegram),
+                renderCopySection("email-copy", "J. Email 完整版", report.email),
+            ].join("");
+
+            window.setTimeout(() => {
+                const target = document.getElementById("deferredReportSections");
+                if (!target) return;
+                target.innerHTML = deferredSections;
+
+                const eSection = Array.from(reportRoot.querySelectorAll(".section-card")).find((sectionNode) => {
+                    const heading = sectionNode.querySelector("h2");
+                    return heading && heading.textContent.trim().startsWith("E.");
+                });
+                if (eSection) {
+                    eSection.querySelectorAll("[data-sr-target]").forEach((node) => {
+                        node.addEventListener("click", () => activateSrChart(eSection, node.getAttribute("data-sr-target")));
+                    });
+                }
+                bindLazyCopySections();
+            }, 0);
         }
 
         function currentSelectedDate() {
@@ -2058,7 +2068,13 @@
             }
         }
 
-        function showFallbackNotice(actualDateText) {
+        function showFallbackNotice(meta) {
+            const actualDateText = meta && meta.date;
+            if (meta && meta.fallbackReason === "requested_snapshot_not_ready" && meta.requestedDate) {
+                fallbackNoticeText.textContent = `${meta.requestedDate} 快照產生中，先顯示最新可用營業日 ${actualDateText}。完成後重新整理就會切到最新資料。`;
+                fallbackNotice.classList.remove("hidden");
+                return;
+            }
             const today = new Date();
             const todayText = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}`;
             if (!actualDateText || actualDateText >= todayText) {
@@ -2125,7 +2141,7 @@
                 const query = params.toString() ? `?${params.toString()}` : "";
                 const data = await fetchReportJson(query, forceRefresh ? 2 : 4);
                 syncDatePicker(data.meta.date);
-                showFallbackNotice(data.meta.date);
+                showFallbackNotice(data.meta);
                 renderReport(data);
             } catch (error) {
                 errorBox.classList.remove("hidden");
