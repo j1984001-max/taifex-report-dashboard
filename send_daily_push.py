@@ -469,17 +469,38 @@ def publish_snapshot(report_date: str) -> str:
     return (result.stdout or "").strip()
 
 
-def report_is_ready(report: dict[str, object], *, mode: str = "full") -> tuple[bool, str]:
+def report_is_ready(
+    report: dict[str, object],
+    *,
+    mode: str = "full",
+    expected_date: str | None = None,
+) -> tuple[bool, str]:
+    meta = report.get("meta", {})
+    if expected_date:
+        if meta.get("fallbackReason"):
+            return False, f"{expected_date} snapshot 尚未完成，現在是 fallback 資料"
+        actual_date = str(meta.get("date", ""))
+        if actual_date != expected_date:
+            return False, f"{expected_date} 尚未發布，報告日期仍為 {actual_date or '缺資料'}"
+
     tables = report.get("tables", {})
     overview = report.get("changeOverview", {})
     for key in ["A", "B", "C", "D"]:
-        rows = tables.get(key, {}).get("rows", [])
+        section = tables.get(key, {})
+        section_date = str(section.get("date", ""))
+        if expected_date and section_date and section_date != expected_date:
+            return False, f"{key} 表實際日期仍為 {section_date}，不是 {expected_date}"
+        rows = section.get("rows", [])
         if not rows:
             return False, f"{key} 缺少 rows"
     alignment_rows = overview.get("highLowAlignmentRows", [])
     alignment_highlights = overview.get("highLowAlignmentHighlights", [])
     if not alignment_rows or not alignment_highlights:
         return False, "高低點對照速覽尚未補齊"
+    if expected_date:
+        first_alignment_date = str((alignment_rows[0] or {}).get("date", ""))
+        if first_alignment_date and first_alignment_date != expected_date:
+            return False, f"高低點對照最新日期仍為 {first_alignment_date}，不是 {expected_date}"
     if mode == "full":
         charts = tables.get("E", {}).get("charts", [])
         if len(charts) < 3:
@@ -518,7 +539,7 @@ def main() -> None:
     for index in range(attempts):
         report, _ = cached_report(requested_date, report_url, force_refresh=True)
         # Only block send when core tables are missing. E/G delays happen after 15:00.
-        ready, last_reason = report_is_ready(report, mode="minimal")
+        ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
         actual_date = str(report.get("meta", {}).get("date", ""))
         if ready and not requested_date and actual_date != expected_date:
             ready = False
@@ -537,7 +558,7 @@ def main() -> None:
             time.sleep(args.retry_delay)
     if report is None:
         raise RuntimeError("無法建立報表")
-    ready, last_reason = report_is_ready(report, mode="minimal")
+    ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
     if not ready:
         raise RuntimeError(f"核心表格仍未完整：{last_reason}")
 

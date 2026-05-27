@@ -648,7 +648,10 @@
                 }
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-                syncDatePicker(data.meta.date);
+                const pickerDate = data.meta.fallbackReason === "requested_snapshot_not_ready" && data.meta.requestedDate
+                    ? data.meta.requestedDate
+                    : data.meta.date;
+                syncDatePicker(pickerDate);
                 renderReport(data);
             } catch (error) {
                 errorBox.classList.remove("hidden");

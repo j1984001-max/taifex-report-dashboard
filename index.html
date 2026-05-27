@@ -2140,7 +2140,10 @@
                 if (forceRefresh) params.set("refresh", "1");
                 const query = params.toString() ? `?${params.toString()}` : "";
                 const data = await fetchReportJson(query, forceRefresh ? 2 : 4);
-                syncDatePicker(data.meta.date);
+                const pickerDate = data.meta.fallbackReason === "requested_snapshot_not_ready" && data.meta.requestedDate
+                    ? data.meta.requestedDate
+                    : data.meta.date;
+                syncDatePicker(pickerDate);
                 showFallbackNotice(data.meta);
                 renderReport(data);
             } catch (error) {
