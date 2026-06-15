@@ -8,6 +8,8 @@ import json
 import os
 import re
 import threading
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
@@ -40,7 +42,11 @@ TAIFEX = "https://www.taifex.com.tw"
 BQ888 = "https://www.bq888.taifex.com.tw"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; Codex dashboard fetcher)",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    ),
     "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
 }
 
@@ -151,6 +157,10 @@ CACHE_DIR.mkdir(exist_ok=True)
 SNAPSHOT_DIR.mkdir(exist_ok=True)
 REPORT_CACHE_LOCK = threading.Lock()
 REPORT_CACHE_MEMORY: dict[str, dict[str, Any]] = {}
+REQUEST_LOCK = threading.Lock()
+LAST_REQUEST_AT = 0.0
+REQUEST_MIN_INTERVAL_SECONDS = float(os.environ.get("REQUEST_MIN_INTERVAL_SECONDS", "1.25"))
+REQUEST_MAX_RETRIES = int(os.environ.get("REQUEST_MAX_RETRIES", "4"))
 
 
 @dataclass
@@ -396,25 +406,82 @@ def cached_report(report_date: str | None, report_url: str, force_refresh: bool 
     raise last_error or ValueError("找不到可用報告資料")
 
 
+def _throttle_request() -> None:
+    global LAST_REQUEST_AT
+    with REQUEST_LOCK:
+        now = time.monotonic()
+        wait = REQUEST_MIN_INTERVAL_SECONDS - (now - LAST_REQUEST_AT)
+        if wait > 0:
+            time.sleep(wait)
+        LAST_REQUEST_AT = time.monotonic()
+
+
+def _retry_delay(attempt: int, exc: urllib.error.HTTPError | None = None) -> float:
+    if exc:
+        retry_after = exc.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(float(retry_after), 90.0)
+            except ValueError:
+                pass
+    return min(30.0 * (attempt + 1), 120.0)
+
+
 def request_html(base: str, path: str, data: dict[str, str] | None = None) -> str:
     payload = urllib.parse.urlencode(data).encode() if data else None
     request = urllib.request.Request(f"{base}{path}", headers=HEADERS)
-    with urllib.request.urlopen(request, data=payload, timeout=30) as response:
-        return response.read().decode("utf-8", "ignore")
+    for attempt in range(REQUEST_MAX_RETRIES + 1):
+        try:
+            _throttle_request()
+            with urllib.request.urlopen(request, data=payload, timeout=30) as response:
+                return response.read().decode("utf-8", "ignore")
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 or attempt >= REQUEST_MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(attempt, exc))
+        except (TimeoutError, urllib.error.URLError):
+            if attempt >= REQUEST_MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(attempt))
+    raise RuntimeError("request_html retry loop exhausted")
 
 
 def request_bytes(base: str, path: str, data: dict[str, str] | None = None) -> bytes:
     payload = urllib.parse.urlencode(data).encode() if data else None
     request = urllib.request.Request(f"{base}{path}", headers=HEADERS)
-    with urllib.request.urlopen(request, data=payload, timeout=30) as response:
-        return response.read()
+    for attempt in range(REQUEST_MAX_RETRIES + 1):
+        try:
+            _throttle_request()
+            with urllib.request.urlopen(request, data=payload, timeout=30) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 or attempt >= REQUEST_MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(attempt, exc))
+        except (TimeoutError, urllib.error.URLError):
+            if attempt >= REQUEST_MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(attempt))
+    raise RuntimeError("request_bytes retry loop exhausted")
 
 
 def request_json(base: str, path: str, data: dict[str, str | int] | None = None, headers: dict[str, str] | None = None) -> Any:
     query = f"?{urllib.parse.urlencode(data)}" if data else ""
     request = urllib.request.Request(f"{base}{path}{query}", headers=headers or HEADERS)
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8", "ignore"))
+    for attempt in range(REQUEST_MAX_RETRIES + 1):
+        try:
+            _throttle_request()
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8", "ignore"))
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 or attempt >= REQUEST_MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(attempt, exc))
+        except (TimeoutError, urllib.error.URLError):
+            if attempt >= REQUEST_MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(attempt))
+    raise RuntimeError("request_json retry loop exhausted")
 
 
 def parse_tables(html: str) -> list[list[list[str]]]:
