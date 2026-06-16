@@ -20,10 +20,12 @@ from pathlib import Path
 from server import (
     Handler,
     PUBLIC_BASE_URL,
+    TAIFEX,
     build_report_pdf,
     build_telegram_important_date_lines,
     cached_report,
     latest_business_day,
+    request_html,
     save_snapshot,
     snapshot_paths,
 )
@@ -511,6 +513,45 @@ def report_is_ready(
     return True, "ok"
 
 
+def taifex_source_is_ready(expected_date: str) -> tuple[bool, str]:
+    checks = [
+        (
+            "三大法人期貨",
+            "/cht/3/futContractsDateExcel",
+            {"queryType": "1", "queryDate": expected_date, "commodityId": ""},
+        ),
+        (
+            "三大法人選擇權",
+            "/cht/3/callsAndPutsDate",
+            {"queryType": "1", "queryDate": expected_date, "commodityId": "TXO"},
+        ),
+        (
+            "TX 日行情",
+            "/cht/3/futDailyMarketExcel",
+            {
+                "queryType": "2",
+                "marketCode": "0",
+                "commodity_id": "TX",
+                "commodity_id2": "",
+                "queryDate": expected_date,
+            },
+        ),
+        (
+            "OI 增減",
+            "/cht/7/dailyIndOptChgData",
+            {"queryDate": expected_date},
+        ),
+    ]
+    for label, path, data in checks:
+        try:
+            html = request_html(TAIFEX, path, data)
+        except Exception as exc:  # noqa: BLE001
+            return False, f"{label} 檢查失敗：{type(exc).__name__}: {exc}"
+        if expected_date not in html:
+            return False, f"{label} 尚未回 {expected_date}"
+    return True, "ok"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Send the daily TAIFEX snapshot, Telegram summary, and email.")
     parser.add_argument("--date", help="Target report date in YYYY/MM/DD. Defaults to latest available business day.")
@@ -537,10 +578,18 @@ def main() -> None:
     last_reason = "unknown"
     report = None
     for index in range(attempts):
-        report, _ = cached_report(requested_date, report_url, force_refresh=True)
-        # Only block send when core tables are missing. E/G delays happen after 15:00.
-        ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
-        actual_date = str(report.get("meta", {}).get("date", ""))
+        source_ready, last_reason = taifex_source_is_ready(expected_date)
+        if not source_ready:
+            ready = False
+        else:
+            try:
+                report, _ = cached_report(requested_date, report_url, force_refresh=True)
+                # Only block send when core tables are missing. E/G delays happen after 15:00.
+                ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
+            except Exception as exc:  # noqa: BLE001
+                ready = False
+                last_reason = f"完整報告建立失敗：{type(exc).__name__}: {exc}"
+        actual_date = str((report or {}).get("meta", {}).get("date", ""))
         if ready and not requested_date and actual_date != expected_date:
             ready = False
             last_reason = f"{expected_date} 尚未發布，最新可用資料仍為 {actual_date or '缺資料'}"
