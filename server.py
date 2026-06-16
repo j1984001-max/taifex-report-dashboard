@@ -213,7 +213,9 @@ def normalize_text(value: str) -> str:
 
 
 def latest_business_day(today: datetime | None = None) -> str:
-    current = today or datetime.now()
+    current = today or datetime.now(TW_TZ)
+    if current.tzinfo is not None:
+        current = current.astimezone(TW_TZ).replace(tzinfo=None)
     while current.weekday() >= 5:
         current -= timedelta(days=1)
     return current.strftime("%Y/%m/%d")
