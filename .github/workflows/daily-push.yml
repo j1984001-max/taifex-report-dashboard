@@ -6,7 +6,7 @@ on:
     # 08:10-14:40 Asia/Taipei, Monday-Friday.
     - cron: "10,40 0-6 * * 1-5"
     # Close-time wakeups for the 15:00-15:45 release window.
-    - cron: "0,15,30,45 7 * * 1-5"
+    - cron: "0,5,10,15,20,25,30,35,40,45 7 * * 1-5"
   workflow_dispatch:
 
 concurrency:
@@ -51,7 +51,7 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
           REPORT_MAX_RETRIES: "560"
-          REPORT_RETRY_DELAY_SECONDS: "60"
+          REPORT_RETRY_DELAY_SECONDS: "30"
           SEND_FULL_TELEGRAM: "0"
           REQUEST_MIN_INTERVAL_SECONDS: "1.25"
           REQUEST_MAX_RETRIES: "6"

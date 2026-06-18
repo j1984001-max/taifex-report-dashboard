@@ -24,10 +24,13 @@ from server import (
     build_report_pdf,
     build_telegram_important_date_lines,
     cached_report,
+    find_table,
     latest_business_day,
+    parse_tables,
     request_html,
     save_snapshot,
     snapshot_paths,
+    to_int,
 )
 
 
@@ -495,6 +498,14 @@ def report_is_ready(
         rows = section.get("rows", [])
         if not rows:
             return False, f"{key} 缺少 rows"
+        if key == "B":
+            oi_fields = ("oiLongQty", "oiShortQty", "oiNetQty")
+            if not any(any(int(row.get(field) or 0) != 0 for field in oi_fields) for row in rows):
+                return False, "B 表未平倉全部為 0，資料尚未完整"
+        if key == "D":
+            oi_fields = ("callOiNetQty", "putOiNetQty", "totalOiNetQty")
+            if not any(any(int(row.get(field) or 0) != 0 for field in oi_fields) for row in rows):
+                return False, "D 表選擇權未平倉全部為 0，資料尚未完整"
     alignment_rows = overview.get("highLowAlignmentRows", [])
     alignment_highlights = overview.get("highLowAlignmentHighlights", [])
     if not alignment_rows or not alignment_highlights:
@@ -514,16 +525,30 @@ def report_is_ready(
 
 
 def taifex_source_is_ready(expected_date: str) -> tuple[bool, str]:
+    def table_has_nonzero_values(html: str, token: str, columns: tuple[int, ...]) -> bool:
+        table = find_table(parse_tables(html), token)
+        for row in table:
+            for column in columns:
+                try:
+                    value = to_int(row[column]) if column < len(row) else 0
+                except ValueError:
+                    continue
+                if value != 0:
+                    return True
+        return False
+
     checks = [
         (
             "三大法人期貨",
             "/cht/3/futContractsDateExcel",
             {"queryType": "1", "queryDate": expected_date, "commodityId": ""},
+            ("臺股期貨", (9, 11, 13)),
         ),
         (
             "三大法人選擇權",
             "/cht/3/callsAndPutsDate",
             {"queryType": "1", "queryDate": expected_date, "commodityId": "TXO"},
+            ("商品 名稱", (10, 12, 14)),
         ),
         (
             "TX 日行情",
@@ -535,20 +560,29 @@ def taifex_source_is_ready(expected_date: str) -> tuple[bool, str]:
                 "commodity_id2": "",
                 "queryDate": expected_date,
             },
+            None,
         ),
         (
             "OI 增減",
             "/cht/7/dailyIndOptChgData",
             {"queryDate": expected_date},
+            None,
         ),
     ]
-    for label, path, data in checks:
+    for label, path, data, nonzero_check in checks:
         try:
             html = request_html(TAIFEX, path, data)
         except Exception as exc:  # noqa: BLE001
             return False, f"{label} 檢查失敗：{type(exc).__name__}: {exc}"
         if expected_date not in html:
             return False, f"{label} 尚未回 {expected_date}"
+        if nonzero_check:
+            token, columns = nonzero_check
+            try:
+                if not table_has_nonzero_values(html, token, columns):
+                    return False, f"{label} 未平倉仍全為 0，資料尚未完整"
+            except Exception as exc:  # noqa: BLE001
+                return False, f"{label} 完整性檢查失敗：{type(exc).__name__}: {exc}"
     return True, "ok"
 
 

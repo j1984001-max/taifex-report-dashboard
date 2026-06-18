@@ -1720,15 +1720,20 @@ def build_tx_settlement_history(end_date: str, *, count: int = 5) -> dict[str, d
     for idx, item in enumerate(series):
         date_text = item["date"]
         ref = item["value"]
-        prev = series[idx + 1]["value"] if idx + 1 < len(series) else None
         settlement = ref.get("settlement")
-        prev_settlement = prev.get("settlement") if prev else None
+        if settlement is not None and settlement <= 0:
+            settlement = None
+        prev_settlement = None
+        for previous in series[idx + 1 :]:
+            candidate = previous["value"].get("settlement")
+            if candidate is not None and candidate > 0:
+                prev_settlement = candidate
+                break
         change = None
         change_pct = None
         if settlement is not None and prev_settlement is not None:
             change = settlement - prev_settlement
-            if prev_settlement:
-                change_pct = change / prev_settlement * 100
+            change_pct = change / prev_settlement * 100
         result[date_text] = {
             "settlement": settlement,
             "change": change,
