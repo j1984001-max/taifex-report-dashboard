@@ -293,18 +293,58 @@ def latest_snapshot_date(max_date: str | None = None) -> str | None:
     return None
 
 
+def report_snapshot_health_reason(report: dict[str, Any]) -> str | None:
+    tables = report.get("tables") or {}
+    table_b_rows = (tables.get("B") or {}).get("rows") or []
+    tx_rows = [row for row in table_b_rows if row.get("product") == "臺股期貨"]
+    if tx_rows and all(
+        (row.get("oiLongQty") or 0) == 0
+        and (row.get("oiShortQty") or 0) == 0
+        and (row.get("oiNetQty") or 0) == 0
+        for row in tx_rows
+    ):
+        return "B 表臺股期貨未平倉全部為 0"
+
+    table_d_rows = (tables.get("D") or {}).get("rows") or []
+    if table_d_rows and all(
+        (row.get("oiLongQty") or 0) == 0
+        and (row.get("oiShortQty") or 0) == 0
+        and (row.get("oiNetQty") or 0) == 0
+        for row in table_d_rows
+    ):
+        return "D 表選擇權未平倉全部為 0"
+
+    return None
+
+
+def report_snapshot_is_ready(report: dict[str, Any]) -> bool:
+    return report_snapshot_health_reason(report) is None
+
+
 def load_snapshot(report_date: str, report_url: str) -> tuple[dict[str, Any], bytes | None] | None:
     json_path, pdf_path = snapshot_paths(report_date)
     if not json_path.exists():
         return None
     try:
         report = json.loads(json_path.read_text(encoding="utf-8"))
+        if not report_snapshot_is_ready(report):
+            return None
         report["meta"]["reportUrl"] = report_url
         normalize_important_dates(report)
         pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
         return report, pdf_data
     except Exception:
         return None
+
+
+def latest_ready_snapshot_date(max_date: str | None = None, report_url: str = PUBLIC_BASE_URL) -> str | None:
+    max_dt = datetime.strptime(max_date, "%Y/%m/%d").date() if max_date else None
+    for date_text in available_snapshot_dates():
+        if max_dt and datetime.strptime(date_text, "%Y/%m/%d").date() > max_dt:
+            continue
+        if load_snapshot(date_text, report_url):
+            return date_text
+    return None
 
 
 def save_snapshot(report_date: str, report: dict[str, Any], pdf_data: bytes | None = None) -> None:
@@ -318,8 +358,10 @@ def load_cached_report(key: str, ttl: int) -> tuple[dict[str, Any], bytes | None
     now = datetime.now().timestamp()
     with REPORT_CACHE_LOCK:
         cached = REPORT_CACHE_MEMORY.get(key)
-        if cached and now - cached["created_at"] <= ttl:
+        if cached and now - cached["created_at"] <= ttl and report_snapshot_is_ready(cached["report"]):
             return cached["report"], cached.get("pdf")
+        if cached and not report_snapshot_is_ready(cached["report"]):
+            REPORT_CACHE_MEMORY.pop(key, None)
 
     json_path, pdf_path = cache_paths(key)
     if not json_path.exists():
@@ -330,6 +372,8 @@ def load_cached_report(key: str, ttl: int) -> tuple[dict[str, Any], bytes | None
 
     try:
         report = json.loads(json_path.read_text(encoding="utf-8"))
+        if not report_snapshot_is_ready(report):
+            return None
         normalize_important_dates(report)
         pdf_data = pdf_path.read_bytes() if pdf_path.exists() else None
     except Exception:
@@ -365,7 +409,7 @@ def invalidate_cached_report(key: str) -> None:
 
 def cached_report(report_date: str | None, report_url: str, force_refresh: bool = False) -> tuple[dict[str, Any], str]:
     if not report_date and not force_refresh:
-        snapshot_date = latest_snapshot_date(latest_business_day()) or latest_snapshot_date()
+        snapshot_date = latest_ready_snapshot_date(latest_business_day(), report_url) or latest_ready_snapshot_date(report_url=report_url)
         if snapshot_date:
             snapshot = load_snapshot(snapshot_date, report_url)
             if snapshot:
@@ -374,19 +418,48 @@ def cached_report(report_date: str | None, report_url: str, force_refresh: bool 
                 save_cached_report(key, report, pdf_data)
                 return report, key
 
-    if report_date and not force_refresh and report_date == latest_business_day():
-        json_path, _ = snapshot_paths(report_date)
-        if not json_path.exists():
-            fallback_date = latest_snapshot_date(previous_business_day(report_date)) or latest_snapshot_date()
+    if report_date and not force_refresh:
+        requested_dt = datetime.strptime(report_date, "%Y/%m/%d").date()
+        latest_business = latest_business_day()
+        latest_business_dt = datetime.strptime(latest_business, "%Y/%m/%d").date()
+        fallback_ceiling = None
+        fallback_reason = None
+        if requested_dt > latest_business_dt:
+            fallback_ceiling = latest_business
+            fallback_reason = "requested_date_after_latest_business_day"
+        elif not is_business_day(requested_dt):
+            fallback_ceiling = previous_business_day(report_date)
+            fallback_reason = "requested_date_not_business_day"
+
+        if fallback_ceiling:
+            fallback_date = latest_ready_snapshot_date(fallback_ceiling, report_url)
             if fallback_date:
                 snapshot = load_snapshot(fallback_date, report_url)
                 if snapshot:
                     report, pdf_data = snapshot
                     report.setdefault("meta", {})["requestedDate"] = report_date
-                    report["meta"]["fallbackReason"] = "requested_snapshot_not_ready"
+                    report["meta"]["fallbackReason"] = fallback_reason
                     key = cache_key(fallback_date, report_url)
                     save_cached_report(key, report, pdf_data)
                     return report, key
+
+    if report_date and not force_refresh and report_date == latest_business_day():
+        snapshot = load_snapshot(report_date, report_url)
+        if snapshot:
+            report, pdf_data = snapshot
+            key = cache_key(report_date, report_url)
+            save_cached_report(key, report, pdf_data)
+            return report, key
+        fallback_date = latest_ready_snapshot_date(previous_business_day(report_date), report_url)
+        if fallback_date:
+            snapshot = load_snapshot(fallback_date, report_url)
+            if snapshot:
+                report, pdf_data = snapshot
+                report.setdefault("meta", {})["requestedDate"] = report_date
+                report["meta"]["fallbackReason"] = "requested_snapshot_not_ready"
+                key = cache_key(fallback_date, report_url)
+                save_cached_report(key, report, pdf_data)
+                return report, key
 
     candidate_dates = [report_date] if report_date else []
     if not candidate_dates:
