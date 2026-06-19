@@ -23,11 +23,13 @@ from server import (
     TAIFEX,
     build_report_pdf,
     build_telegram_important_date_lines,
+    cache_key,
     cached_report,
     find_table,
     latest_business_day,
     parse_tables,
     request_html,
+    save_cached_report,
     save_snapshot,
     snapshot_paths,
     to_int,
@@ -251,7 +253,13 @@ def send_telegram_document(bot_token: str, chat_id: str, *, caption: str, filena
         return json.loads(response.read().decode("utf-8"))
 
 
-def capture_report_screenshots(report_date: str) -> dict[str, bytes]:
+def capture_report_screenshots(
+    report_date: str,
+    *,
+    report: dict[str, object] | None = None,
+    include_high_low: bool = True,
+    include_detail_sections: bool = True,
+) -> dict[str, bytes]:
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception:
@@ -262,6 +270,8 @@ def capture_report_screenshots(report_date: str) -> dict[str, bytes]:
     local_thread.start()
     local_base_url = f"http://127.0.0.1:{local_server.server_port}"
     url = f"{local_base_url}/?date={urllib.parse.quote(report_date)}"
+    if report:
+        save_cached_report(cache_key(report_date, url), report)
     screenshots: dict[str, bytes] = {}
 
     try:
@@ -273,56 +283,57 @@ def capture_report_screenshots(report_date: str) -> dict[str, bytes]:
             for _ in range(3):
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-                    # The page renders sections after fetching /api/report, so wait for C/D heading text.
-                    page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照").first.wait_for(timeout=60_000)
-                    page.locator("h2", has_text="C. 大額交易人未沖銷詳細版").first.wait_for(timeout=60_000)
-                    page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版").first.wait_for(timeout=60_000)
+                    if include_high_low:
+                        page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照").first.wait_for(timeout=60_000)
+                        high_low_block = page.locator("div.mt-5").filter(
+                            has=page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照")
+                        ).first
+                        if high_low_block.count() > 0:
+                            high_low_grid = high_low_block.locator("div.grid.gap-4").first
+                            if high_low_grid.count() > 0:
+                                screenshots["high_low_cards"] = high_low_grid.screenshot(type="png")
+                            summary_heading = high_low_block.locator("h5", has_text="最近 30 個營業日高低點彙整表").first
+                            if summary_heading.count() > 0:
+                                summary_panel = summary_heading.locator("xpath=..").first
+                                screenshots["high_low_summary"] = summary_panel.screenshot(type="png")
+                            screenshots["high_low"] = high_low_block.screenshot(type="png")
 
-                    high_low_block = page.locator("div.mt-5").filter(
-                        has=page.locator("h4", has_text="期貨高低點 x 前五大 / 前十大特定法人單日增減對照")
-                    ).first
-                    if high_low_block.count() > 0:
-                        high_low_grid = high_low_block.locator("div.grid.gap-4").first
-                        if high_low_grid.count() > 0:
-                            screenshots["high_low_cards"] = high_low_grid.screenshot(type="png")
-                        summary_heading = high_low_block.locator("h5", has_text="最近 30 個營業日高低點彙整表").first
-                        if summary_heading.count() > 0:
-                            summary_panel = summary_heading.locator("xpath=..").first
-                            screenshots["high_low_summary"] = summary_panel.screenshot(type="png")
-                        screenshots["high_low"] = high_low_block.screenshot(type="png")
+                    if include_detail_sections:
+                        page.locator("h2", has_text="C. 大額交易人未沖銷詳細版").first.wait_for(timeout=60_000)
+                        page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版").first.wait_for(timeout=60_000)
 
-                    c_section = page.locator("section.section-card").filter(
-                        has=page.locator("h2", has_text="C. 大額交易人未沖銷詳細版")
-                    ).first
-                    c_section.wait_for(timeout=30_000)
-                    c_table = c_section.locator(".table-wrap").first
-                    if c_table.count() > 0:
-                        screenshots["c_large"] = c_table.screenshot(type="png")
-                    else:
-                        screenshots["c_large"] = c_section.screenshot(type="png")
+                        c_section = page.locator("section.section-card").filter(
+                            has=page.locator("h2", has_text="C. 大額交易人未沖銷詳細版")
+                        ).first
+                        c_section.wait_for(timeout=30_000)
+                        c_table = c_section.locator(".table-wrap").first
+                        if c_table.count() > 0:
+                            screenshots["c_large"] = c_table.screenshot(type="png")
+                        else:
+                            screenshots["c_large"] = c_section.screenshot(type="png")
 
-                    d_section = page.locator("section.section-card").filter(
-                        has=page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版")
-                    ).first
-                    d_section.wait_for(timeout=30_000)
+                        d_section = page.locator("section.section-card").filter(
+                            has=page.locator("h2", has_text="D. 三大法人選擇權分契約詳細版")
+                        ).first
+                        d_section.wait_for(timeout=30_000)
 
-                    # 1) 三大法人買賣權未平倉（WantGoo-style table; default=外資）
-                    inst_panel = d_section.locator("#dInstitutionPanels .d-inst-panel:not(.hidden)").first
-                    if inst_panel.count() > 0:
-                        screenshots["d_institutions"] = inst_panel.screenshot(type="png")
-                    else:
-                        inst_container = d_section.locator("#dInstitutionPanels").first
-                        if inst_container.count() > 0:
-                            screenshots["d_institutions"] = inst_container.screenshot(type="png")
+                        # 1) 三大法人買賣權未平倉（WantGoo-style table; default=外資）
+                        inst_panel = d_section.locator("#dInstitutionPanels .d-inst-panel:not(.hidden)").first
+                        if inst_panel.count() > 0:
+                            screenshots["d_institutions"] = inst_panel.screenshot(type="png")
+                        else:
+                            inst_container = d_section.locator("#dInstitutionPanels").first
+                            if inst_container.count() > 0:
+                                screenshots["d_institutions"] = inst_container.screenshot(type="png")
 
-                    # 2) 大額交易人買賣權未平倉（WantGoo-style table; default=月選）
-                    large_panel = d_section.locator("#dLargeTraderPanels .d-large-panel:not(.hidden)").first
-                    if large_panel.count() > 0:
-                        screenshots["d_specific"] = large_panel.screenshot(type="png")
-                    else:
-                        large_container = d_section.locator("#dLargeTraderPanels").first
-                        if large_container.count() > 0:
-                            screenshots["d_specific"] = large_container.screenshot(type="png")
+                        # 2) 大額交易人買賣權未平倉（WantGoo-style table; default=月選）
+                        large_panel = d_section.locator("#dLargeTraderPanels .d-large-panel:not(.hidden)").first
+                        if large_panel.count() > 0:
+                            screenshots["d_specific"] = large_panel.screenshot(type="png")
+                        else:
+                            large_container = d_section.locator("#dLargeTraderPanels").first
+                            if large_container.count() > 0:
+                                screenshots["d_specific"] = large_container.screenshot(type="png")
                     break
                 except Exception:
                     try:
@@ -591,6 +602,7 @@ def main() -> None:
     parser.add_argument("--date", help="Target report date in YYYY/MM/DD. Defaults to latest available business day.")
     parser.add_argument("--chat-id", default=os.environ.get("TELEGRAM_CHAT_ID", DEFAULT_TELEGRAM_CHAT_ID), help="Telegram chat id.")
     parser.add_argument("--quick-only", action="store_true", help="Only send the quick overview and C/D screenshots (no full text, no email).")
+    parser.add_argument("--high-low-only", action="store_true", help="Only send the high/low overview and high/low screenshots.")
     parser.add_argument("--max-retries", type=int, default=int(os.environ.get("REPORT_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))), help="Max retries when the report is not ready.")
     parser.add_argument("--retry-delay", type=int, default=int(os.environ.get("REPORT_RETRY_DELAY_SECONDS", str(DEFAULT_RETRY_DELAY_SECONDS))), help="Retry delay in seconds when the report is not ready.")
     args = parser.parse_args()
@@ -645,9 +657,10 @@ def main() -> None:
     if not ready:
         raise RuntimeError(f"核心表格仍未完整：{last_reason}")
 
-    # Save the JSON snapshot first so the local screenshot server can render immediately.
-    # PDF generation and email are slower and should not hold up the Telegram screenshots.
-    save_snapshot(report["meta"]["date"], report)
+    # Save the JSON snapshot first so the public site has today's data immediately.
+    # The high-low-only path uses local cache instead, so the full daily push does not skip later.
+    if not args.high_low_only:
+        save_snapshot(report["meta"]["date"], report)
 
     token = load_telegram_token()
     high_low_focus = build_high_low_focus_overview(report)
@@ -660,41 +673,64 @@ def main() -> None:
     results = []
     for message in high_low_messages:
         results.append(send_telegram_message(token, args.chat_id, message))
-    for message in quick_messages:
-        results.append(send_telegram_message(token, args.chat_id, message))
 
-    # Attach C/D screenshots right after quick overview.
-    shots = capture_report_screenshots(report["meta"]["date"])
-    if shots.get("high_low_cards"):
+    # Capture and send high/low cards first. Do not wait for C/D screenshots.
+    high_low_shots = capture_report_screenshots(
+        report["meta"]["date"],
+        report=report,
+        include_high_low=True,
+        include_detail_sections=False,
+    )
+    if high_low_shots.get("high_low_cards"):
         results.append(
             send_telegram_document(
                 token,
                 args.chat_id,
                 caption=f"高低點對照圖卡（{report['meta']['date']}）",
                 filename=f"high-low-cards-{report['meta']['date'].replace('/', '-')}.png",
-                data=shots["high_low_cards"],
+                data=high_low_shots["high_low_cards"],
             )
         )
-    elif shots.get("high_low"):
+    elif high_low_shots.get("high_low"):
         results.append(
             send_telegram_document(
                 token,
                 args.chat_id,
                 caption=f"高低點對照圖表（{report['meta']['date']}）",
                 filename=f"high-low-{report['meta']['date'].replace('/', '-')}.png",
-                data=shots["high_low"],
+                data=high_low_shots["high_low"],
             )
         )
-    if shots.get("high_low_summary"):
+    if high_low_shots.get("high_low_summary"):
         results.append(
             send_telegram_document(
                 token,
                 args.chat_id,
                 caption=f"高低點 30 日彙整表（{report['meta']['date']}）",
                 filename=f"high-low-summary-{report['meta']['date'].replace('/', '-')}.png",
-                data=shots["high_low_summary"],
+                data=high_low_shots["high_low_summary"],
             )
         )
+
+    if args.high_low_only:
+        print(json.dumps({
+            "date": report["meta"]["date"],
+            "telegramMessages": len(results),
+            "telegramMessageIds": [item.get("result", {}).get("message_id") for item in results],
+            "highLowOnly": True,
+        }, ensure_ascii=False))
+        return
+
+    for message in quick_messages:
+        results.append(send_telegram_message(token, args.chat_id, message))
+
+    # Attach C/D screenshots after the high/low card has already gone out.
+    shots = capture_report_screenshots(
+        report["meta"]["date"],
+        report=report,
+        include_high_low=False,
+        include_detail_sections=True,
+    )
     if shots.get("c_large"):
         results.append(
             send_telegram_document(
