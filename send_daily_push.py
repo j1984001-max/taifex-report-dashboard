@@ -13,6 +13,7 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import datetime, time as datetime_time
 from email.message import EmailMessage
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -21,6 +22,7 @@ from server import (
     Handler,
     PUBLIC_BASE_URL,
     TAIFEX,
+    TW_TZ,
     build_report_pdf,
     build_telegram_important_date_lines,
     cache_key,
@@ -609,6 +611,17 @@ def main() -> None:
 
     requested_date = args.date
     expected_date = requested_date or latest_business_day()
+    if not requested_date:
+        expected_day = datetime.strptime(expected_date, "%Y/%m/%d").date()
+        now_tw = datetime.now(TW_TZ)
+        if now_tw.date() == expected_day and now_tw.time() < datetime_time(15, 0):
+            print(json.dumps({
+                "date": expected_date,
+                "skipped": True,
+                "reason": "before_taifex_15_00_release",
+                "nowTaipei": now_tw.isoformat(timespec="seconds"),
+            }, ensure_ascii=False))
+            return
     if not requested_date and os.environ.get("SKIP_EXISTING_DAILY_PUSH", "1") == "1":
         json_path, _ = snapshot_paths(expected_date)
         if json_path.exists():
