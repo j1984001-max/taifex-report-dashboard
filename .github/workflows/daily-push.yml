@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: daily-taifex-push
+  group: daily-taifex-push-v2
   cancel-in-progress: false
 
 jobs:

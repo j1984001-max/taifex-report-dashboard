@@ -55,6 +55,21 @@ TARGET_OPTION_PRODUCT = "臺指選擇權"
 TARGET_LARGE_TRADER = "臺股期貨(TX+MTX/4+TMF/20)"
 US_EASTERN = ZoneInfo("America/New_York")
 TW_TZ = ZoneInfo("Asia/Taipei")
+TAIWAN_MARKET_HOLIDAYS = {
+    "2026/01/01",
+    "2026/02/16",
+    "2026/02/17",
+    "2026/02/18",
+    "2026/02/19",
+    "2026/02/20",
+    "2026/02/27",
+    "2026/04/03",
+    "2026/04/06",
+    "2026/05/01",
+    "2026/06/19",
+    "2026/09/25",
+    "2026/10/09",
+}
 MONTH_NAMES = {
     "January": 1,
     "February": 2,
@@ -212,25 +227,29 @@ def normalize_text(value: str) -> str:
     return " ".join(value.replace("\xa0", " ").split())
 
 
+def is_business_day(value: datetime) -> bool:
+    return value.weekday() < 5 and value.strftime("%Y/%m/%d") not in TAIWAN_MARKET_HOLIDAYS
+
+
 def latest_business_day(today: datetime | None = None) -> str:
     current = today or datetime.now(TW_TZ)
     if current.tzinfo is not None:
         current = current.astimezone(TW_TZ).replace(tzinfo=None)
-    while current.weekday() >= 5:
+    while not is_business_day(current):
         current -= timedelta(days=1)
     return current.strftime("%Y/%m/%d")
 
 
 def previous_business_day(date_text: str) -> str:
     current = datetime.strptime(date_text, "%Y/%m/%d") - timedelta(days=1)
-    while current.weekday() >= 5:
+    while not is_business_day(current):
         current -= timedelta(days=1)
     return current.strftime("%Y/%m/%d")
 
 
 def next_business_day(date_text: str) -> str:
     current = datetime.strptime(date_text, "%Y/%m/%d") + timedelta(days=1)
-    while current.weekday() >= 5:
+    while not is_business_day(current):
         current += timedelta(days=1)
     return current.strftime("%Y/%m/%d")
 
@@ -583,7 +602,7 @@ def business_dates_from(start_date: datetime.date, count: int) -> list[datetime.
     dates: list[datetime.date] = []
     current = start_date
     while len(dates) < count:
-        if current.weekday() < 5:
+        if is_business_day(datetime.combine(current, datetime.min.time())):
             dates.append(current)
         current += timedelta(days=1)
     return dates

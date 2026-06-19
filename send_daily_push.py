@@ -516,7 +516,7 @@ def report_is_ready(
             if not any(any(int(row.get(field) or 0) != 0 for field in oi_fields) for row in rows):
                 return False, "B 表未平倉全部為 0，資料尚未完整"
         if key == "D":
-            oi_fields = ("callOiNetQty", "putOiNetQty", "totalOiNetQty")
+            oi_fields = ("oiLongQty", "oiShortQty", "oiNetQty")
             if not any(any(int(row.get(field) or 0) != 0 for field in oi_fields) for row in rows):
                 return False, "D 表選擇權未平倉全部為 0，資料尚未完整"
     alignment_rows = overview.get("highLowAlignmentRows", [])
@@ -625,12 +625,29 @@ def main() -> None:
     if not requested_date and os.environ.get("SKIP_EXISTING_DAILY_PUSH", "1") == "1":
         json_path, _ = snapshot_paths(expected_date)
         if json_path.exists():
+            try:
+                existing_report = json.loads(json_path.read_text(encoding="utf-8"))
+                existing_ready, existing_reason = report_is_ready(
+                    existing_report,
+                    mode="minimal",
+                    expected_date=expected_date,
+                )
+            except Exception as exc:  # noqa: BLE001
+                existing_ready = False
+                existing_reason = f"existing_snapshot_invalid: {type(exc).__name__}: {exc}"
+            if existing_ready:
+                print(json.dumps({
+                    "date": expected_date,
+                    "skipped": True,
+                    "reason": "snapshot_already_exists",
+                }, ensure_ascii=False))
+                return
             print(json.dumps({
                 "date": expected_date,
-                "skipped": True,
-                "reason": "snapshot_already_exists",
-            }, ensure_ascii=False))
-            return
+                "skipped": False,
+                "reason": "snapshot_exists_but_not_ready",
+                "detail": existing_reason,
+            }, ensure_ascii=False), flush=True)
 
     report_url = f"{PUBLIC_BASE_URL}/?date={requested_date}" if requested_date else PUBLIC_BASE_URL
     attempts = args.max_retries + 1
