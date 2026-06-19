@@ -1,0 +1,63 @@
+name: TAIFEX Recovery 2026-06-18
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/taifex-recovery-2026-06-18.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: taifex-recovery-2026-06-18
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install playwright==1.59.0
+          python3 -m playwright install --with-deps chromium
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Recover 2026-06-18 snapshot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_TO: ${{ secrets.GMAIL_TO }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
+          SEND_FULL_TELEGRAM: "0"
+          REQUEST_MIN_INTERVAL_SECONDS: "1.25"
+          REQUEST_MAX_RETRIES: "6"
+        run: python3 send_daily_push.py --date 2026/06/18 --max-retries 12 --retry-delay 30 | tee taifex-recovery-result.json
+
+      - name: Upload recovery result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: taifex-recovery-result
+          path: taifex-recovery-result.json
+          if-no-files-found: warn
