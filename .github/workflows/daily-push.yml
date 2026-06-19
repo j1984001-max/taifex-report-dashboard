@@ -5,7 +5,7 @@ on:
     # Close-time wakeups for the 15:00-15:55 Asia/Taipei release window.
     - cron: "0,5,10,15,20,25,30,35,40,45,50,55 7 * * 1-5"
     # Backup wakeups for delayed TAIFEX or GitHub scheduler runs.
-    - cron: "0,15 8 * * 1-5"
+    - cron: "0,15,25,40 8 * * 1-5"
   workflow_dispatch:
 
 concurrency:
