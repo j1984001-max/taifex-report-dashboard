@@ -53,8 +53,8 @@ jobs:
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
           SEND_FULL_TELEGRAM: "0"
           REQUEST_MIN_INTERVAL_SECONDS: "1.25"
-          REQUEST_MAX_RETRIES: "1"
-        run: python3 send_daily_push.py --date 2026/06/22 --max-retries 2 --retry-delay 30 | tee taifex-recovery-result.json
+          REQUEST_MAX_RETRIES: "0"
+        run: python3 send_daily_push.py --date 2026/06/22 --max-retries 0 --retry-delay 30 | tee taifex-recovery-result.json
 
       - name: Alert Telegram on failure
         if: failure()
