@@ -1272,13 +1272,22 @@ def fetch_futures_history_rows(report_date: str, count: int = 5) -> list[dict[st
 
 
 def fetch_futures_rows_for_date(report_date: str) -> list[dict[str, Any]]:
-    html = request_html(
-        TAIFEX,
-        "/cht/3/futContractsDateExcel",
-        {"queryType": "1", "queryDate": report_date, "commodityId": ""},
-    )
-    table = find_table(parse_tables(html), "臺股期貨")
-    return parse_futures_contracts(table)
+    try:
+        html = request_html(
+            TAIFEX,
+            "/cht/3/futContractsDateExcel",
+            {"queryType": "1", "queryDate": report_date, "commodityId": ""},
+        )
+        table = find_table(parse_tables(html), "臺股期貨")
+        return parse_futures_contracts(table)
+    except Exception:
+        snapshot = load_snapshot(report_date, PUBLIC_BASE_URL)
+        if snapshot:
+            report, _ = snapshot
+            rows = ((report.get("tables") or {}).get("B") or {}).get("rows") or []
+            if rows:
+                return rows
+        raise
 
 
 def cycle_start_thursday(report_date: str) -> str:
@@ -2756,13 +2765,22 @@ def build_institution_option_history_rows(
 
 
 def fetch_option_rows_for_date(report_date: str) -> list[dict[str, Any]]:
-    html = request_html(
-        TAIFEX,
-        "/cht/3/callsAndPutsDate",
-        {"queryType": "1", "queryDate": report_date, "commodityId": "TXO"},
-    )
-    table = find_table(parse_tables(html), "商品 名稱")
-    return parse_option_contracts(table)
+    try:
+        html = request_html(
+            TAIFEX,
+            "/cht/3/callsAndPutsDate",
+            {"queryType": "1", "queryDate": report_date, "commodityId": "TXO"},
+        )
+        table = find_table(parse_tables(html), "商品 名稱")
+        return parse_option_contracts(table)
+    except Exception:
+        snapshot = load_snapshot(report_date, PUBLIC_BASE_URL)
+        if snapshot:
+            report, _ = snapshot
+            rows = ((report.get("tables") or {}).get("D") or {}).get("rows") or []
+            if rows:
+                return rows
+        raise
 
 
 def enrich_option_with_history(
