@@ -1,0 +1,67 @@
+name: TAIFEX High-Low 2026-06-22
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/taifex-high-low-2026-06-22.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: taifex-high-low-2026-06-22
+  cancel-in-progress: true
+
+jobs:
+  send-high-low:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install playwright==1.59.0
+          python3 -m playwright install --with-deps chromium
+
+      - name: Send high-low screenshots
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
+          REQUEST_MIN_INTERVAL_SECONDS: "1.25"
+          REQUEST_MAX_RETRIES: "0"
+        run: python3 send_daily_push.py --date 2026/06/22 --high-low-only --max-retries 0
+
+      - name: Alert Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import os, urllib.parse, urllib.request
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat_id = os.environ["TELEGRAM_CHAT_ID"]
+          run_url = os.environ["RUN_URL"]
+          text = f"2026/06/22 高低點截圖補送失敗\n請檢查 GitHub Actions：{run_url}"
+          data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
+          req = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=data,
+              headers={"Content-Type": "application/x-www-form-urlencoded"},
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              resp.read()
+          PY
