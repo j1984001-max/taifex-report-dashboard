@@ -605,6 +605,7 @@ def main() -> None:
     parser.add_argument("--chat-id", default=os.environ.get("TELEGRAM_CHAT_ID", DEFAULT_TELEGRAM_CHAT_ID), help="Telegram chat id.")
     parser.add_argument("--quick-only", action="store_true", help="Only send the quick overview and C/D screenshots (no full text, no email).")
     parser.add_argument("--high-low-only", action="store_true", help="Only send the high/low overview and high/low screenshots.")
+    parser.add_argument("--snapshot-only", action="store_true", help="Only build and publish the JSON snapshot for the public site.")
     parser.add_argument("--max-retries", type=int, default=int(os.environ.get("REPORT_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))), help="Max retries when the report is not ready.")
     parser.add_argument("--retry-delay", type=int, default=int(os.environ.get("REPORT_RETRY_DELAY_SECONDS", str(DEFAULT_RETRY_DELAY_SECONDS))), help="Retry delay in seconds when the report is not ready.")
     args = parser.parse_args()
@@ -693,6 +694,14 @@ def main() -> None:
     if not args.high_low_only:
         save_snapshot(report["meta"]["date"], report)
         early_publish_result = publish_snapshot(report["meta"]["date"])
+
+    if args.snapshot_only:
+        print(json.dumps({
+            "date": report["meta"]["date"],
+            "snapshotOnly": True,
+            "publishResult": early_publish_result,
+        }, ensure_ascii=False))
+        return
 
     token = load_telegram_token()
     high_low_focus = build_high_low_focus_overview(report)
