@@ -1673,7 +1673,7 @@ def fetch_business_day_series(
     *,
     count: int,
     fetch_fn,
-    max_lookback_days: int = 40,
+    max_lookback_days: int = 70,
 ) -> list[dict[str, Any]]:
     """Fetch up to `count` business-day records ending at end_date (inclusive).
 
@@ -1684,6 +1684,10 @@ def fetch_business_day_series(
     current = datetime.strptime(end_date, "%Y/%m/%d")
     checked = 0
     while len(series) < count and checked < max_lookback_days:
+        if not is_business_day(current):
+            current -= timedelta(days=1)
+            checked += 1
+            continue
         date_text = current.strftime("%Y/%m/%d")
         try:
             value = fetch_fn(date_text)
@@ -1719,6 +1723,10 @@ def fetch_business_day_series_until(
     current = datetime.strptime(end_date, "%Y/%m/%d")
     checked = 0
     while current >= lower_bound and checked < max_lookback_days:
+        if not is_business_day(current):
+            current -= timedelta(days=1)
+            checked += 1
+            continue
         date_text = current.strftime("%Y/%m/%d")
         try:
             value = fetch_fn(date_text)
@@ -3113,27 +3121,27 @@ def fetch_large_trader_for_date(report_date: str, monthly_code: str) -> list[dic
 
 
 def fetch_previous_large_trader_business_day(report_date: str, monthly_code: str, limit: int = 10) -> tuple[str | None, list[dict[str, Any]] | None]:
-    current = datetime.strptime(report_date, "%Y/%m/%d") - timedelta(days=1)
+    current = datetime.strptime(previous_business_day(report_date), "%Y/%m/%d")
     checked = 0
     while checked < limit:
         date_text = current.strftime("%Y/%m/%d")
         rows = fetch_large_trader_for_date(date_text, monthly_code)
         if rows:
             return date_text, rows
-        current -= timedelta(days=1)
+        current = datetime.strptime(previous_business_day(date_text), "%Y/%m/%d")
         checked += 1
     return None, None
 
 
 def fetch_previous_large_trader_option_business_day(report_date: str, monthly_code: str, limit: int = 10) -> tuple[str | None, list[dict[str, Any]] | None]:
-    current = datetime.strptime(report_date, "%Y/%m/%d") - timedelta(days=1)
+    current = datetime.strptime(previous_business_day(report_date), "%Y/%m/%d")
     checked = 0
     while checked < limit:
         date_text = current.strftime("%Y/%m/%d")
         rows = fetch_large_trader_option_for_date(date_text, monthly_code)
         if rows:
             return date_text, rows
-        current -= timedelta(days=1)
+        current = datetime.strptime(previous_business_day(date_text), "%Y/%m/%d")
         checked += 1
     return None, None
 
