@@ -15,7 +15,7 @@ concurrency:
 jobs:
   daily-push:
     runs-on: ubuntu-latest
-    timeout-minutes: 420
+    timeout-minutes: 45
     permissions:
       contents: write
 
@@ -49,11 +49,11 @@ jobs:
           GMAIL_TO: ${{ secrets.GMAIL_TO }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
-          REPORT_MAX_RETRIES: "560"
+          REPORT_MAX_RETRIES: "2"
           REPORT_RETRY_DELAY_SECONDS: "30"
           SEND_FULL_TELEGRAM: "0"
           REQUEST_MIN_INTERVAL_SECONDS: "1.25"
-          REQUEST_MAX_RETRIES: "6"
+          REQUEST_MAX_RETRIES: "1"
         run: python3 send_daily_push.py | tee daily-push-result.json
 
       - name: Upload daily push result
