@@ -687,10 +687,12 @@ def main() -> None:
     if not ready:
         raise RuntimeError(f"核心表格仍未完整：{last_reason}")
 
-    # Save the JSON snapshot first so the public site has today's data immediately.
-    # The high-low-only path uses local cache instead, so the full daily push does not skip later.
+    # Save and publish the JSON snapshot first so the public site has today's data
+    # before screenshots, PDF generation, or email delivery can delay the full run.
+    early_publish_result = "skipped_high_low_only"
     if not args.high_low_only:
         save_snapshot(report["meta"]["date"], report)
+        early_publish_result = publish_snapshot(report["meta"]["date"])
 
     token = load_telegram_token()
     high_low_focus = build_high_low_focus_overview(report)
@@ -803,6 +805,7 @@ def main() -> None:
 
     pdf_data = build_report_pdf(report)
     save_snapshot(report["meta"]["date"], report, pdf_data)
+    pdf_publish_result = publish_snapshot(report["meta"]["date"])
 
     # Full Telegram text is optional. By default, avoid sending the older text-only
     # complete-report format after the new overview screenshots.
@@ -810,7 +813,6 @@ def main() -> None:
         results.append(send_telegram_message(token, args.chat_id, message))
 
     email_to = send_email(report, pdf_data)
-    publish_result = publish_snapshot(report["meta"]["date"])
 
     print(json.dumps({
         "date": report["meta"]["date"],
@@ -818,7 +820,8 @@ def main() -> None:
         "telegramMessageIds": [item.get("result", {}).get("message_id") for item in results],
         "sentFullTelegram": send_full_telegram,
         "emailTo": email_to,
-        "publishResult": publish_result,
+        "publishResult": early_publish_result,
+        "pdfPublishResult": pdf_publish_result,
     }, ensure_ascii=False))
 
 
