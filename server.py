@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import signal
 import threading
 import time
 import urllib.error
@@ -40,6 +41,7 @@ LATEST_REPORT_CACHE_TTL = int(os.environ.get("LATEST_REPORT_CACHE_TTL", "21600")
 HISTORICAL_REPORT_CACHE_TTL = int(os.environ.get("HISTORICAL_REPORT_CACHE_TTL", "604800"))
 TAIFEX = "https://www.taifex.com.tw"
 BQ888 = "https://www.bq888.taifex.com.tw"
+REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "20"))
 
 HEADERS = {
     "User-Agent": (
@@ -521,14 +523,37 @@ def _retry_delay(attempt: int, exc: urllib.error.HTTPError | None = None) -> flo
     return min(30.0 * (attempt + 1), 120.0)
 
 
+class _HardTimeout:
+    def __init__(self, seconds: int):
+        self.seconds = seconds
+        self._previous_handler = None
+
+    def __enter__(self):
+        if threading.current_thread() is not threading.main_thread() or self.seconds <= 0:
+            return
+        self._previous_handler = signal.getsignal(signal.SIGALRM)
+
+        def _raise_timeout(_signum, _frame):
+            raise TimeoutError(f"request exceeded {self.seconds}s")
+
+        signal.signal(signal.SIGALRM, _raise_timeout)
+        signal.alarm(self.seconds)
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._previous_handler is not None:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, self._previous_handler)
+
+
 def request_html(base: str, path: str, data: dict[str, str] | None = None) -> str:
     payload = urllib.parse.urlencode(data).encode() if data else None
     request = urllib.request.Request(f"{base}{path}", headers=HEADERS)
     for attempt in range(REQUEST_MAX_RETRIES + 1):
         try:
             _throttle_request()
-            with urllib.request.urlopen(request, data=payload, timeout=30) as response:
-                return response.read().decode("utf-8", "ignore")
+            with _HardTimeout(REQUEST_TIMEOUT_SECONDS):
+                with urllib.request.urlopen(request, data=payload, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                    return response.read().decode("utf-8", "ignore")
         except urllib.error.HTTPError as exc:
             if exc.code != 429 or attempt >= REQUEST_MAX_RETRIES:
                 raise
@@ -546,8 +571,9 @@ def request_bytes(base: str, path: str, data: dict[str, str] | None = None) -> b
     for attempt in range(REQUEST_MAX_RETRIES + 1):
         try:
             _throttle_request()
-            with urllib.request.urlopen(request, data=payload, timeout=30) as response:
-                return response.read()
+            with _HardTimeout(REQUEST_TIMEOUT_SECONDS):
+                with urllib.request.urlopen(request, data=payload, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                    return response.read()
         except urllib.error.HTTPError as exc:
             if exc.code != 429 or attempt >= REQUEST_MAX_RETRIES:
                 raise
@@ -565,8 +591,9 @@ def request_json(base: str, path: str, data: dict[str, str | int] | None = None,
     for attempt in range(REQUEST_MAX_RETRIES + 1):
         try:
             _throttle_request()
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.loads(response.read().decode("utf-8", "ignore"))
+            with _HardTimeout(REQUEST_TIMEOUT_SECONDS):
+                with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                    return json.loads(response.read().decode("utf-8", "ignore"))
         except urllib.error.HTTPError as exc:
             if exc.code != 429 or attempt >= REQUEST_MAX_RETRIES:
                 raise

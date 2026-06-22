@@ -17,7 +17,7 @@ concurrency:
 jobs:
   recover:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 25
     permissions:
       contents: write
 
@@ -52,6 +52,7 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
           SEND_FULL_TELEGRAM: "0"
+          REQUEST_TIMEOUT_SECONDS: "15"
           REQUEST_MIN_INTERVAL_SECONDS: "1.25"
           REQUEST_MAX_RETRIES: "0"
         run: python3 send_daily_push.py --date 2026/06/22 --snapshot-only --max-retries 0 --retry-delay 30 | tee taifex-recovery-result.json
