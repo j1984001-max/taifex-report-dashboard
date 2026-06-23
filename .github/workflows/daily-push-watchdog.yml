@@ -55,6 +55,71 @@ jobs:
           REQUEST_MAX_RETRIES: "0"
         run: python3 send_daily_push.py | tee watchdog-result.json
 
+      - name: Verify published snapshot
+        if: success()
+        env:
+          PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
+
+          holidays = {
+              "2026/01/01", "2026/02/16", "2026/02/17", "2026/02/18", "2026/02/19",
+              "2026/02/20", "2026/02/27", "2026/04/03", "2026/04/06", "2026/05/01",
+              "2026/06/19", "2026/09/25", "2026/10/09",
+          }
+
+          current = datetime.now(ZoneInfo("Asia/Taipei"))
+          while current.weekday() >= 5 or current.strftime("%Y/%m/%d") in holidays:
+              current -= timedelta(days=1)
+          expected = current.strftime("%Y/%m/%d")
+
+          raw_url = (
+              "https://raw.githubusercontent.com/"
+              f"{os.environ['GITHUB_REPOSITORY']}/main/snapshots/{expected.replace('/', '-')}.json"
+          )
+          api_url = f"{os.environ['PUBLIC_BASE_URL']}/api/report?date={expected}"
+
+          def fetch_json(url: str) -> dict:
+              req = urllib.request.Request(
+                  url,
+                  headers={"Cache-Control": "no-cache", "Pragma": "no-cache", "User-Agent": "Mozilla/5.0"},
+              )
+              with urllib.request.urlopen(req, timeout=45) as resp:
+                  return json.loads(resp.read().decode("utf-8", "ignore"))
+
+          raw = fetch_json(raw_url)
+          raw_meta = raw.get("meta", {})
+          if raw_meta.get("date") != expected:
+              raise SystemExit(f"raw snapshot date mismatch: expected {expected}, got {raw_meta.get('date')}")
+
+          rows = (raw.get("changeOverview") or {}).get("highLowAlignmentSummaryRows") or []
+          required = [
+              "futuresBuyTop5SpecificCycle",
+              "futuresSellTop5SpecificCycle",
+              "futuresBuyTop10SpecificCycle",
+              "futuresSellTop10SpecificCycle",
+              "foreignFuturesBuyCycle",
+              "foreignFuturesSellCycle",
+          ]
+          for row in rows[:5]:
+              for field in required:
+                  if row.get(field) is None:
+                      raise SystemExit(f"raw snapshot {row.get('date')} missing {field}")
+
+          try:
+              api = fetch_json(api_url)
+          except Exception as exc:  # noqa: BLE001
+              print(f"site_verify_warning: {type(exc).__name__}: {exc}")
+          else:
+              api_meta = api.get("meta", {})
+              if api_meta.get("date") != expected:
+                  print(f"site_verify_warning: expected {expected}, got {api_meta.get('date')}")
+          print(json.dumps({"verifiedSnapshot": expected, "rawGeneratedAt": raw_meta.get("generatedAt")}, ensure_ascii=False))
+          PY
+
       - name: Upload watchdog result
         if: always()
         uses: actions/upload-artifact@v4

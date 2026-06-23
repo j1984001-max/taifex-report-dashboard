@@ -527,6 +527,25 @@ def report_is_ready(
         first_alignment_date = str((alignment_rows[0] or {}).get("date", ""))
         if first_alignment_date and first_alignment_date != expected_date:
             return False, f"高低點對照最新日期仍為 {first_alignment_date}，不是 {expected_date}"
+
+    summary_rows = overview.get("highLowAlignmentSummaryRows", [])
+    high_low_required_fields = (
+        "futuresBuyTop5SpecificCycle",
+        "futuresSellTop5SpecificCycle",
+        "futuresBuyTop10SpecificCycle",
+        "futuresSellTop10SpecificCycle",
+        "foreignFuturesBuyCycle",
+        "foreignFuturesSellCycle",
+    )
+    rows_to_check = list(alignment_rows[:3])
+    if summary_rows:
+        rows_to_check.extend(summary_rows[:5])
+    for row in rows_to_check:
+        date_text = str(row.get("date") or "缺日期")
+        for field in high_low_required_fields:
+            if row.get(field) is None:
+                return False, f"高低點對照 {date_text} 缺少 {field}"
+
     if mode == "full":
         charts = tables.get("E", {}).get("charts", [])
         if len(charts) < 3:
