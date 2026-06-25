@@ -44,6 +44,30 @@ DEFAULT_RETRY_DELAY_SECONDS = 300
 DEFAULT_MAX_RETRIES = 2
 
 
+def delivery_state_path(report_date: str) -> Path:
+    return Path(__file__).resolve().parent / "snapshots" / f"{report_date.replace('/', '-')}.delivery.json"
+
+
+def load_delivery_state(report_date: str) -> dict[str, object]:
+    path = delivery_state_path(report_date)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_delivery_state(report_date: str, state: dict[str, object]) -> None:
+    path = delivery_state_path(report_date)
+    payload = {
+        **state,
+        "date": report_date,
+        "updatedAt": datetime.now(TW_TZ).isoformat(timespec="seconds"),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def parse_dotenv(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.exists():
@@ -645,6 +669,7 @@ def main() -> None:
     if not requested_date and os.environ.get("SKIP_EXISTING_DAILY_PUSH", "1") == "1":
         json_path, _ = snapshot_paths(expected_date)
         if json_path.exists():
+            delivery_state = load_delivery_state(expected_date)
             try:
                 existing_report = json.loads(json_path.read_text(encoding="utf-8"))
                 existing_ready, existing_reason = report_is_ready(
@@ -655,18 +680,18 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 existing_ready = False
                 existing_reason = f"existing_snapshot_invalid: {type(exc).__name__}: {exc}"
-            if existing_ready:
+            if existing_ready and delivery_state.get("complete") is True:
                 print(json.dumps({
                     "date": expected_date,
                     "skipped": True,
-                    "reason": "snapshot_already_exists",
+                    "reason": "daily_delivery_already_complete",
                 }, ensure_ascii=False))
                 return
             print(json.dumps({
                 "date": expected_date,
                 "skipped": False,
-                "reason": "snapshot_exists_but_not_ready",
-                "detail": existing_reason,
+                "reason": "daily_delivery_incomplete",
+                "detail": existing_reason if not existing_ready else delivery_state,
             }, ensure_ascii=False), flush=True)
 
     report_url = f"{PUBLIC_BASE_URL}/?date={requested_date}" if requested_date else PUBLIC_BASE_URL
@@ -722,6 +747,7 @@ def main() -> None:
         }, ensure_ascii=False))
         return
 
+    delivery_state = load_delivery_state(report["meta"]["date"])
     token = load_telegram_token()
     high_low_focus = build_high_low_focus_overview(report)
     high_low_messages = split_telegram_text(high_low_focus)
@@ -731,46 +757,50 @@ def main() -> None:
     full_messages = split_telegram_text(decorate_telegram_text(report["telegram"])) if send_full_telegram else []
 
     results = []
-    for message in high_low_messages:
-        results.append(send_telegram_message(token, args.chat_id, message))
+    if delivery_state.get("highLowTelegram") is not True:
+        for message in high_low_messages:
+            results.append(send_telegram_message(token, args.chat_id, message))
 
-    # Capture and send high/low cards first. Do not wait for C/D screenshots.
-    high_low_shots = capture_report_screenshots(
-        report["meta"]["date"],
-        report=report,
-        include_high_low=True,
-        include_detail_sections=False,
-    )
-    if high_low_shots.get("high_low_cards"):
-        results.append(
-            send_telegram_document(
-                token,
-                args.chat_id,
-                caption=f"高低點對照圖卡（{report['meta']['date']}）",
-                filename=f"high-low-cards-{report['meta']['date'].replace('/', '-')}.png",
-                data=high_low_shots["high_low_cards"],
-            )
+        # Capture and send high/low cards first. Do not wait for C/D screenshots.
+        high_low_shots = capture_report_screenshots(
+            report["meta"]["date"],
+            report=report,
+            include_high_low=True,
+            include_detail_sections=False,
         )
-    elif high_low_shots.get("high_low"):
-        results.append(
-            send_telegram_document(
-                token,
-                args.chat_id,
-                caption=f"高低點對照圖表（{report['meta']['date']}）",
-                filename=f"high-low-{report['meta']['date'].replace('/', '-')}.png",
-                data=high_low_shots["high_low"],
+        if high_low_shots.get("high_low_cards"):
+            results.append(
+                send_telegram_document(
+                    token,
+                    args.chat_id,
+                    caption=f"高低點對照圖卡（{report['meta']['date']}）",
+                    filename=f"high-low-cards-{report['meta']['date'].replace('/', '-')}.png",
+                    data=high_low_shots["high_low_cards"],
+                )
             )
-        )
-    if high_low_shots.get("high_low_summary"):
-        results.append(
-            send_telegram_document(
-                token,
-                args.chat_id,
-                caption=f"高低點 30 日彙整表（{report['meta']['date']}）",
-                filename=f"high-low-summary-{report['meta']['date'].replace('/', '-')}.png",
-                data=high_low_shots["high_low_summary"],
+        elif high_low_shots.get("high_low"):
+            results.append(
+                send_telegram_document(
+                    token,
+                    args.chat_id,
+                    caption=f"高低點對照圖表（{report['meta']['date']}）",
+                    filename=f"high-low-{report['meta']['date'].replace('/', '-')}.png",
+                    data=high_low_shots["high_low"],
+                )
             )
-        )
+        if high_low_shots.get("high_low_summary"):
+            results.append(
+                send_telegram_document(
+                    token,
+                    args.chat_id,
+                    caption=f"高低點 30 日彙整表（{report['meta']['date']}）",
+                    filename=f"high-low-summary-{report['meta']['date'].replace('/', '-')}.png",
+                    data=high_low_shots["high_low_summary"],
+                )
+            )
+        delivery_state["highLowTelegram"] = True
+        save_delivery_state(report["meta"]["date"], delivery_state)
+        publish_snapshot(report["meta"]["date"])
 
     if args.high_low_only:
         print(json.dumps({
@@ -781,46 +811,50 @@ def main() -> None:
         }, ensure_ascii=False))
         return
 
-    for message in quick_messages:
-        results.append(send_telegram_message(token, args.chat_id, message))
+    if delivery_state.get("detailTelegram") is not True:
+        for message in quick_messages:
+            results.append(send_telegram_message(token, args.chat_id, message))
 
-    # Attach C/D screenshots after the high/low card has already gone out.
-    shots = capture_report_screenshots(
-        report["meta"]["date"],
-        report=report,
-        include_high_low=False,
-        include_detail_sections=True,
-    )
-    if shots.get("c_large"):
-        results.append(
-            send_telegram_document(
-                token,
-                args.chat_id,
-                caption=f"C. 期貨大額多空未平倉（{report['meta']['date']}）",
-                filename=f"c-large-{report['meta']['date'].replace('/', '-')}.png",
-                data=shots["c_large"],
-            )
+        # Attach C/D screenshots after the high/low card has already gone out.
+        shots = capture_report_screenshots(
+            report["meta"]["date"],
+            report=report,
+            include_high_low=False,
+            include_detail_sections=True,
         )
-    if shots.get("d_institutions"):
-        results.append(
-            send_telegram_document(
-                token,
-                args.chat_id,
-                caption=f"D. 三大法人買賣權未平倉（{report['meta']['date']}）",
-                filename=f"d-institutions-{report['meta']['date'].replace('/', '-')}.png",
-                data=shots["d_institutions"],
+        if shots.get("c_large"):
+            results.append(
+                send_telegram_document(
+                    token,
+                    args.chat_id,
+                    caption=f"C. 期貨大額多空未平倉（{report['meta']['date']}）",
+                    filename=f"c-large-{report['meta']['date'].replace('/', '-')}.png",
+                    data=shots["c_large"],
+                )
             )
-        )
-    if shots.get("d_specific"):
-        results.append(
-            send_telegram_document(
-                token,
-                args.chat_id,
-                caption=f"D. 選擇權特定法人表（{report['meta']['date']}）",
-                filename=f"d-specific-{report['meta']['date'].replace('/', '-')}.png",
-                data=shots["d_specific"],
+        if shots.get("d_institutions"):
+            results.append(
+                send_telegram_document(
+                    token,
+                    args.chat_id,
+                    caption=f"D. 三大法人買賣權未平倉（{report['meta']['date']}）",
+                    filename=f"d-institutions-{report['meta']['date'].replace('/', '-')}.png",
+                    data=shots["d_institutions"],
+                )
             )
-        )
+        if shots.get("d_specific"):
+            results.append(
+                send_telegram_document(
+                    token,
+                    args.chat_id,
+                    caption=f"D. 選擇權特定法人表（{report['meta']['date']}）",
+                    filename=f"d-specific-{report['meta']['date'].replace('/', '-')}.png",
+                    data=shots["d_specific"],
+                )
+            )
+        delivery_state["detailTelegram"] = True
+        save_delivery_state(report["meta"]["date"], delivery_state)
+        publish_snapshot(report["meta"]["date"])
 
     if args.quick_only:
         print(json.dumps({
@@ -840,7 +874,16 @@ def main() -> None:
     for message in full_messages:
         results.append(send_telegram_message(token, args.chat_id, message))
 
-    email_to = send_email(report, pdf_data)
+    email_to = None
+    if delivery_state.get("email") is not True:
+        email_to = send_email(report, pdf_data)
+        delivery_state["email"] = True
+    delivery_state["complete"] = all(
+        delivery_state.get(key) is True
+        for key in ("highLowTelegram", "detailTelegram", "email")
+    )
+    save_delivery_state(report["meta"]["date"], delivery_state)
+    delivery_publish_result = publish_snapshot(report["meta"]["date"])
 
     print(json.dumps({
         "date": report["meta"]["date"],
@@ -850,6 +893,8 @@ def main() -> None:
         "emailTo": email_to,
         "publishResult": early_publish_result,
         "pdfPublishResult": pdf_publish_result,
+        "deliveryPublishResult": delivery_publish_result,
+        "deliveryState": delivery_state,
     }, ensure_ascii=False))
 
 

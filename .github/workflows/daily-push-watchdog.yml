@@ -3,8 +3,8 @@ name: Daily TAIFEX Push Watchdog
 on:
   schedule:
     # Late watchdog checks for missed GitHub schedule runs.
-    - cron: "35 8 * * 1-5"
-    - cron: "5 9 * * 1-5"
+    # Asia/Taipei: 17:07 and 17:37; both avoid the top of the UTC hour.
+    - cron: "7,37 9 * * 1-5"
   workflow_dispatch:
 
 concurrency:
