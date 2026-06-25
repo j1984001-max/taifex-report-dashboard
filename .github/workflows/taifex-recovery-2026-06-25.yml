@@ -1,0 +1,87 @@
+name: TAIFEX Recovery 2026-06-25
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/taifex-recovery-2026-06-25.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: taifex-recovery-2026-06-25
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install playwright==1.59.0
+          python3 -m playwright install --with-deps chromium
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Recover and send 2026-06-25 report
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_TO: ${{ secrets.GMAIL_TO }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
+          SEND_FULL_TELEGRAM: "0"
+          REQUEST_TIMEOUT_SECONDS: "15"
+          REQUEST_MIN_INTERVAL_SECONDS: "1.25"
+          REQUEST_MAX_RETRIES: "0"
+        run: python3 send_daily_push.py --date 2026/06/25 --max-retries 0 --retry-delay 30 | tee taifex-recovery-2026-06-25.json
+
+      - name: Alert Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import os, urllib.parse, urllib.request
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat_id = os.environ["TELEGRAM_CHAT_ID"]
+          run_url = os.environ["RUN_URL"]
+          text = f"2026/06/25 TAIFEX 補送失敗或資料不完整\n請檢查 GitHub Actions：{run_url}"
+          data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
+          req = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=data,
+              headers={"Content-Type": "application/x-www-form-urlencoded"},
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              resp.read()
+          PY
+
+      - name: Upload recovery result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: taifex-recovery-2026-06-25
+          path: taifex-recovery-2026-06-25.json
+          if-no-files-found: warn
