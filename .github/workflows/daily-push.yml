@@ -57,7 +57,7 @@ jobs:
           REQUEST_MAX_RETRIES: "1"
         run: |
           set -o pipefail
-          python3 send_daily_push.py | tee daily-push-result.json
+          python3 send_daily_push.py 2>&1 | tee daily-push-result.json
 
       - name: Verify published snapshot
         if: success()

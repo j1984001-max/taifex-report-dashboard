@@ -55,7 +55,7 @@ jobs:
           REQUEST_MAX_RETRIES: "0"
         run: |
           set -o pipefail
-          python3 send_daily_push.py | tee watchdog-result.json
+          python3 send_daily_push.py 2>&1 | tee watchdog-result.json
 
       - name: Verify published snapshot
         if: success()
