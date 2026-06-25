@@ -55,7 +55,9 @@ jobs:
           SEND_FULL_TELEGRAM: "0"
           REQUEST_MIN_INTERVAL_SECONDS: "1.25"
           REQUEST_MAX_RETRIES: "1"
-        run: python3 send_daily_push.py | tee daily-push-result.json
+        run: |
+          set -o pipefail
+          python3 send_daily_push.py | tee daily-push-result.json
 
       - name: Verify published snapshot
         if: success()

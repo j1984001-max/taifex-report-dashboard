@@ -53,7 +53,9 @@ jobs:
           REQUEST_TIMEOUT_SECONDS: "15"
           REQUEST_MIN_INTERVAL_SECONDS: "1.25"
           REQUEST_MAX_RETRIES: "0"
-        run: python3 send_daily_push.py --date 2026/06/25 --max-retries 0 --retry-delay 30 | tee taifex-recovery-2026-06-25.json
+        run: |
+          set -o pipefail
+          python3 send_daily_push.py --date 2026/06/25 --max-retries 0 --retry-delay 30 | tee taifex-recovery-2026-06-25.json
 
       - name: Alert Telegram on failure
         if: failure()
