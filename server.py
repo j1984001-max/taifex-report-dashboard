@@ -339,6 +339,43 @@ def load_snapshot(report_date: str, report_url: str) -> tuple[dict[str, Any], by
         return None
 
 
+def load_previous_high_low_summary_rows(report_date: str, *, limit: int = 30) -> list[dict[str, Any]]:
+    report_dt = datetime.strptime(report_date, "%Y/%m/%d").date()
+    for date_text in available_snapshot_dates():
+        if datetime.strptime(date_text, "%Y/%m/%d").date() >= report_dt:
+            continue
+        loaded = load_snapshot(date_text, PUBLIC_BASE_URL)
+        if not loaded:
+            continue
+        report, _ = loaded
+        rows = (report.get("changeOverview") or {}).get("highLowAlignmentSummaryRows") or []
+        clean_rows = [
+            row for row in rows
+            if row.get("date")
+            and datetime.strptime(str(row["date"]), "%Y/%m/%d").date() < report_dt
+        ]
+        if clean_rows:
+            return clean_rows[:limit]
+    return []
+
+
+def merge_high_low_summary_rows(
+    current_rows: list[dict[str, Any]],
+    previous_rows: list[dict[str, Any]],
+    *,
+    limit: int = 30,
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in current_rows + previous_rows:
+        date_text = str(row.get("date") or "")
+        if not date_text or date_text in seen:
+            continue
+        seen.add(date_text)
+        merged.append(row)
+    return sorted(merged, key=lambda row: str(row.get("date") or ""), reverse=True)[:limit]
+
+
 def latest_ready_snapshot_date(max_date: str | None = None, report_url: str = PUBLIC_BASE_URL) -> str | None:
     max_dt = datetime.strptime(max_date, "%Y/%m/%d").date() if max_date else None
     for date_text in available_snapshot_dates():
@@ -4546,7 +4583,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     large_trader_opt_history_rows = build_large_trader_opt_history_rows(effective_date, tx_reference["contract"], count=4)
     institution_option_history_rows = build_institution_option_history_rows(effective_date, count=4)
     foreign_futures_history_rows = build_foreign_futures_history_rows(effective_date, count=4)
-    high_low_history_count = 30
+    high_low_history_count = 5
     high_low_large_trader_fut_history_rows = build_large_trader_fut_history_rows(
         effective_date,
         tx_reference["contract"],
@@ -4668,15 +4705,20 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         pc_ratio, pc_ratio_method = fetch_pc_ratio_fallback(base_date)
     important_dates = build_important_dates(base_date)
     recent_futures_spot_ranges = build_recent_futures_spot_range_rows(base_date, count=5)
-    recent_futures_spot_ranges_30 = build_recent_futures_spot_range_rows(base_date, count=30)
-    range_fut_history_rows = build_range_large_trader_fut_history_rows(recent_futures_spot_ranges_30)
+    previous_high_low_summary_rows = load_previous_high_low_summary_rows(base_date, limit=30)
+    recent_futures_spot_ranges_30 = merge_high_low_summary_rows(
+        recent_futures_spot_ranges,
+        previous_high_low_summary_rows,
+        limit=30,
+    )
+    range_fut_history_rows = build_range_large_trader_fut_history_rows(recent_futures_spot_ranges)
     if range_fut_history_rows:
         high_low_large_trader_fut_history_rows = merge_history_entries(
             high_low_large_trader_fut_history_rows,
             range_fut_history_rows,
             match_keys=("date", "contractLabel"),
         )
-    range_opt_history_rows = build_range_large_trader_opt_history_rows(recent_futures_spot_ranges_30)
+    range_opt_history_rows = build_range_large_trader_opt_history_rows(recent_futures_spot_ranges)
     if range_opt_history_rows:
         high_low_large_trader_opt_history_rows = merge_history_entries(
             high_low_large_trader_opt_history_rows,
@@ -4690,12 +4732,10 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         high_low_foreign_futures_history_rows,
         high_low_institution_option_history_rows,
     )
-    high_low_alignment_summary_rows = build_high_low_specific_alignment_rows(
-        recent_futures_spot_ranges_30,
-        high_low_large_trader_fut_history_rows,
-        high_low_large_trader_opt_history_rows,
-        high_low_foreign_futures_history_rows,
-        high_low_institution_option_history_rows,
+    high_low_alignment_summary_rows = merge_high_low_summary_rows(
+        high_low_alignment_rows,
+        previous_high_low_summary_rows,
+        limit=30,
     )
 
     long_top10_add_qty = large_trader["longTop10Qty"] - large_trader["longTop5Qty"]
