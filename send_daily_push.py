@@ -698,34 +698,57 @@ def main() -> None:
     attempts = args.max_retries + 1
     last_reason = "unknown"
     report = None
-    for index in range(attempts):
-        source_ready, last_reason = taifex_source_is_ready(expected_date)
-        if not source_ready:
-            ready = False
-        else:
+    if args.high_low_only:
+        json_path, _ = snapshot_paths(expected_date)
+        if json_path.exists():
             try:
-                report, _ = cached_report(requested_date, report_url, force_refresh=True)
-                # Only block send when core tables are missing. E/G delays happen after 15:00.
-                ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
+                existing_report = json.loads(json_path.read_text(encoding="utf-8"))
+                existing_ready, existing_reason = report_is_ready(
+                    existing_report,
+                    mode="minimal",
+                    expected_date=expected_date,
+                )
             except Exception as exc:  # noqa: BLE001
+                existing_ready = False
+                existing_reason = f"existing_snapshot_invalid: {type(exc).__name__}: {exc}"
+            if existing_ready:
+                report = existing_report
+                print(json.dumps({
+                    "date": expected_date,
+                    "usingExistingSnapshot": True,
+                }, ensure_ascii=False), flush=True)
+            else:
+                last_reason = existing_reason
+
+    if report is None:
+        for index in range(attempts):
+            source_ready, last_reason = taifex_source_is_ready(expected_date)
+            if not source_ready:
                 ready = False
-                last_reason = f"完整報告建立失敗：{type(exc).__name__}: {exc}"
-        actual_date = str((report or {}).get("meta", {}).get("date", ""))
-        if ready and not requested_date and actual_date != expected_date:
-            ready = False
-            last_reason = f"{expected_date} 尚未發布，最新可用資料仍為 {actual_date or '缺資料'}"
-        if ready:
-            break
-        if index < attempts - 1:
-            print(json.dumps({
-                "waiting": True,
-                "attempt": index + 1,
-                "attempts": attempts,
-                "expectedDate": expected_date,
-                "reason": last_reason,
-                "retryDelaySeconds": args.retry_delay,
-            }, ensure_ascii=False), flush=True)
-            time.sleep(args.retry_delay)
+            else:
+                try:
+                    report, _ = cached_report(requested_date, report_url, force_refresh=True)
+                    # Only block send when core tables are missing. E/G delays happen after 15:00.
+                    ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
+                except Exception as exc:  # noqa: BLE001
+                    ready = False
+                    last_reason = f"完整報告建立失敗：{type(exc).__name__}: {exc}"
+            actual_date = str((report or {}).get("meta", {}).get("date", ""))
+            if ready and not requested_date and actual_date != expected_date:
+                ready = False
+                last_reason = f"{expected_date} 尚未發布，最新可用資料仍為 {actual_date or '缺資料'}"
+            if ready:
+                break
+            if index < attempts - 1:
+                print(json.dumps({
+                    "waiting": True,
+                    "attempt": index + 1,
+                    "attempts": attempts,
+                    "expectedDate": expected_date,
+                    "reason": last_reason,
+                    "retryDelaySeconds": args.retry_delay,
+                }, ensure_ascii=False), flush=True)
+                time.sleep(args.retry_delay)
     if report is None:
         raise RuntimeError("無法建立報表")
     ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
