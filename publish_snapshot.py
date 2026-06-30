@@ -14,6 +14,28 @@ def run(cmd: list[str]) -> str:
     return result.stdout.strip()
 
 
+def push_with_rebase_retry() -> None:
+    try:
+        run(["git", "push", "origin", "main"])
+        return
+    except subprocess.CalledProcessError as first_error:
+        first_stderr = first_error.stderr.strip()
+
+    subprocess.run(
+        ["git", "pull", "--rebase", "--autostash", "origin", "main"],
+        cwd=ROOT,
+        check=True,
+    )
+    try:
+        run(["git", "push", "origin", "main"])
+    except subprocess.CalledProcessError as second_error:
+        raise RuntimeError(
+            "git push failed after pull --rebase retry\n"
+            f"first push stderr:\n{first_stderr}\n\n"
+            f"second push stderr:\n{second_error.stderr.strip()}"
+        ) from second_error
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Commit and push updated TAIFEX snapshots.")
     parser.add_argument("--date", help="Snapshot date in YYYY-MM-DD for commit message context.")
@@ -41,7 +63,7 @@ def main() -> None:
         cwd=ROOT,
         check=True,
     )
-    run(["git", "push", "origin", "main"])
+    push_with_rebase_retry()
     print(f"pushed_snapshot={date_text}")
 
 
