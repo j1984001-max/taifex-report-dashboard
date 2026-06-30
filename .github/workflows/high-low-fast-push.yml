@@ -80,6 +80,7 @@ jobs:
         if: success()
         run: |
           python3 - <<'PY'
+          import base64
           import json
           import os
           import urllib.request
@@ -97,7 +98,6 @@ jobs:
               current -= timedelta(days=1)
           expected = current.strftime("%Y/%m/%d")
           slug = expected.replace("/", "-")
-          base = f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/main/snapshots"
 
           def fetch_json(url: str) -> dict:
               req = urllib.request.Request(
@@ -107,7 +107,12 @@ jobs:
               with urllib.request.urlopen(req, timeout=45) as resp:
                   return json.loads(resp.read().decode("utf-8", "ignore"))
 
-          snapshot = fetch_json(f"{base}/{slug}.json")
+          def fetch_repo_json(path: str) -> dict:
+              url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/contents/{path}?ref=main"
+              payload = fetch_json(url)
+              return json.loads(base64.b64decode(payload["content"]).decode("utf-8"))
+
+          snapshot = fetch_repo_json(f"snapshots/{slug}.json")
           if snapshot.get("meta", {}).get("date") != expected:
               raise SystemExit(f"snapshot date mismatch: expected {expected}, got {snapshot.get('meta', {}).get('date')}")
 
@@ -127,7 +132,7 @@ jobs:
           if missing:
               raise SystemExit(f"high-low first row missing fields: {missing}")
 
-          delivery = fetch_json(f"{base}/{slug}.delivery.json")
+          delivery = fetch_repo_json(f"snapshots/{slug}.delivery.json")
           if delivery.get("date") != expected or delivery.get("highLowTelegram") is not True:
               raise SystemExit(f"high-low delivery incomplete: {delivery}")
 

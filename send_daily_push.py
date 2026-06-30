@@ -698,7 +698,7 @@ def main() -> None:
     attempts = args.max_retries + 1
     last_reason = "unknown"
     report = None
-    if args.high_low_only:
+    if not args.snapshot_only:
         json_path, _ = snapshot_paths(expected_date)
         if json_path.exists():
             try:
@@ -716,6 +716,7 @@ def main() -> None:
                 print(json.dumps({
                     "date": expected_date,
                     "usingExistingSnapshot": True,
+                    "mode": "highLowOnly" if args.high_low_only else "delivery",
                 }, ensure_ascii=False), flush=True)
             else:
                 last_reason = existing_reason
