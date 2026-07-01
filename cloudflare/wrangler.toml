@@ -1,6 +1,7 @@
 name = "taifex-high-low-trigger"
 main = "high-low-trigger-worker.js"
 compatibility_date = "2026-07-01"
+workers_dev = true
 
 # UTC times. Asia/Taipei is UTC+8.
 # 07:01/07:11/07:21 UTC = 15:01/15:11/15:21 Taipei.

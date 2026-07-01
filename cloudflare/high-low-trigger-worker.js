@@ -47,7 +47,10 @@ export default {
     if (url.pathname !== "/trigger") {
       return new Response("Not found", { status: 404 });
     }
-    if (env.TRIGGER_SECRET && url.searchParams.get("secret") !== env.TRIGGER_SECRET) {
+    if (!env.TRIGGER_SECRET) {
+      return new Response("Manual trigger is disabled", { status: 403 });
+    }
+    if (url.searchParams.get("secret") !== env.TRIGGER_SECRET) {
       return new Response("Forbidden", { status: 403 });
     }
     return dispatchHighLowWorkflow(env, "manual-http-trigger");

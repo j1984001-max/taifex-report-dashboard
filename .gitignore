@@ -5,6 +5,7 @@ __pycache__/
 *.log
 *.pdf
 .cache/
+.wrangler/
 !snapshots/*.pdf
 
 .openclaw/
