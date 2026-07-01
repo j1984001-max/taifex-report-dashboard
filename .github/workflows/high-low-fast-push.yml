@@ -10,10 +10,17 @@ on:
     # Asia/Taipei late safety wakeups: 17:12 and 17:42.
     - cron: "12,42 9 * * 1-5"
   workflow_dispatch:
+    inputs:
+      trigger_reason:
+        description: "External trigger reason."
+        required: false
+        default: "manual"
+  repository_dispatch:
+    types: [taifex-high-low-fast-push]
 
 concurrency:
   group: taifex-high-low-fast-push
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   high-low-fast-push:
