@@ -1981,8 +1981,8 @@ def build_high_low_specific_alignment_rows(
 ) -> list[dict[str, Any]]:
     fut_map = {row["date"]: row for row in fut_history_rows if row.get("contractLabel") == "月契約"}
     foreign_fut_map = {row["date"]: row for row in foreign_futures_history_rows}
-    fut_cycle_cache: dict[tuple[str, str], dict[str, int | None]] = {}
-    foreign_cycle_cache: dict[str, dict[str, int | None]] = {}
+    fut_cycle_cache: dict[tuple[str, str, str], dict[str, int | None]] = {}
+    foreign_cycle_cache: dict[tuple[str, str], dict[str, int | None]] = {}
 
     opt_map: dict[str, dict[str, Any]] = {}
     for row in opt_history_rows:
@@ -2070,16 +2070,17 @@ def build_high_low_specific_alignment_rows(
 
         fut_cycle_totals = None
         if contract and cycle_start_date:
-            cache_key = (cycle_start_date, contract)
+            cache_key = (date_text, cycle_start_date, contract)
             fut_cycle_totals = fut_cycle_cache.get(cache_key)
             if cache_key not in fut_cycle_cache:
                 fut_cycle_totals = sum_large_trader_specific_cycle_changes(date_text, cycle_start_date, contract)
                 fut_cycle_cache[cache_key] = fut_cycle_totals
 
-        foreign_fut_cycle_totals = foreign_cycle_cache.get(cycle_start_date or "")
-        if cycle_start_date and cycle_start_date not in foreign_cycle_cache:
+        foreign_cycle_key = (date_text, cycle_start_date) if cycle_start_date else None
+        foreign_fut_cycle_totals = foreign_cycle_cache.get(foreign_cycle_key) if foreign_cycle_key else None
+        if foreign_cycle_key and foreign_cycle_key not in foreign_cycle_cache:
             foreign_fut_cycle_totals = sum_foreign_futures_cycle_changes(date_text, cycle_start_date)
-            foreign_cycle_cache[cycle_start_date] = foreign_fut_cycle_totals
+            foreign_cycle_cache[foreign_cycle_key] = foreign_fut_cycle_totals
 
         short_total = sum(
             value or 0
@@ -2211,8 +2212,8 @@ def normalize_high_low_alignment_rows(
         row["date"]: row for row in foreign_futures_history_rows
         if row.get("date")
     }
-    fut_cycle_cache: dict[tuple[str, str], dict[str, int | None]] = {}
-    foreign_cycle_cache: dict[str, dict[str, int | None]] = {}
+    fut_cycle_cache: dict[tuple[str, str, str], dict[str, int | None]] = {}
+    foreign_cycle_cache: dict[tuple[str, str], dict[str, int | None]] = {}
 
     opt_map: dict[str, dict[str, Any]] = {}
     for row in option_history_rows:
@@ -2307,16 +2308,17 @@ def normalize_high_low_alignment_rows(
 
         fut_cycle_totals = None
         if contract and cycle_start_date:
-            cache_key = (cycle_start_date, contract)
+            cache_key = (date_text, cycle_start_date, contract)
             fut_cycle_totals = fut_cycle_cache.get(cache_key)
             if cache_key not in fut_cycle_cache:
                 fut_cycle_totals = sum_large_trader_specific_cycle_changes(date_text, cycle_start_date, contract)
                 fut_cycle_cache[cache_key] = fut_cycle_totals
 
-        foreign_fut_cycle_totals = foreign_cycle_cache.get(cycle_start_date or "")
-        if cycle_start_date and cycle_start_date not in foreign_cycle_cache:
+        foreign_cycle_key = (date_text, cycle_start_date) if cycle_start_date else None
+        foreign_fut_cycle_totals = foreign_cycle_cache.get(foreign_cycle_key) if foreign_cycle_key else None
+        if foreign_cycle_key and foreign_cycle_key not in foreign_cycle_cache:
             foreign_fut_cycle_totals = sum_foreign_futures_cycle_changes(date_text, cycle_start_date)
-            foreign_cycle_cache[cycle_start_date] = foreign_fut_cycle_totals
+            foreign_cycle_cache[foreign_cycle_key] = foreign_fut_cycle_totals
         normalized_rows.append(
             {
                 **previous,
