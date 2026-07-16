@@ -1841,6 +1841,13 @@ def sum_large_trader_specific_cycle_changes(
     return totals
 
 
+def cycle_start_for_report_date(date_text: str, monthly_code: str | None) -> str | None:
+    if not monthly_code:
+        return None
+    cycle_start = monthly_cycle_start(monthly_code)
+    return cycle_start if cycle_start <= date_text else None
+
+
 def sum_foreign_futures_cycle_changes(
     end_date: str,
     start_date: str,
@@ -1972,6 +1979,20 @@ def classify_pressure_strength(total: int | None, *, side: str) -> str:
     return "變動輕微，多方中性"
 
 
+def sum_complete_values(values: list[int | None]) -> int | None:
+    if any(value is None for value in values):
+        return None
+    return sum(int(value or 0) for value in values)
+
+
+def add_optional_int(entry: dict[str, Any], key: str, value: Any) -> None:
+    if value is None:
+        if key not in entry:
+            entry[key] = None
+        return
+    entry[key] = int(value) if entry.get(key) is None else int(entry.get(key) or 0) + int(value)
+
+
 def build_high_low_specific_alignment_rows(
     range_rows: list[dict[str, Any]],
     fut_history_rows: list[dict[str, Any]],
@@ -1992,14 +2013,14 @@ def build_high_low_specific_alignment_rows(
         entry = opt_map.setdefault(
             row["date"],
             {
-                "callBuyTop5SpecificDay": 0,
-                "callSellTop5SpecificDay": 0,
-                "putBuyTop5SpecificDay": 0,
-                "putSellTop5SpecificDay": 0,
-                "callBuyTop10SpecificDay": 0,
-                "callSellTop10SpecificDay": 0,
-                "putBuyTop10SpecificDay": 0,
-                "putSellTop10SpecificDay": 0,
+                "callBuyTop5SpecificDay": None,
+                "callSellTop5SpecificDay": None,
+                "putBuyTop5SpecificDay": None,
+                "putSellTop5SpecificDay": None,
+                "callBuyTop10SpecificDay": None,
+                "callSellTop10SpecificDay": None,
+                "putBuyTop10SpecificDay": None,
+                "putSellTop10SpecificDay": None,
                 "callBuyTop5SpecificQty": 0,
                 "callSellTop5SpecificQty": 0,
                 "putBuyTop5SpecificQty": 0,
@@ -2011,19 +2032,19 @@ def build_high_low_specific_alignment_rows(
             },
         )
         if option_side == "call":
-            entry["callBuyTop5SpecificDay"] += int(row.get("longTop5SpecificDay") or 0)
-            entry["callSellTop5SpecificDay"] += int(row.get("shortTop5SpecificDay") or 0)
-            entry["callBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
-            entry["callSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
+            add_optional_int(entry, "callBuyTop5SpecificDay", row.get("longTop5SpecificDay"))
+            add_optional_int(entry, "callSellTop5SpecificDay", row.get("shortTop5SpecificDay"))
+            add_optional_int(entry, "callBuyTop10SpecificDay", row.get("longTop10SpecificDay"))
+            add_optional_int(entry, "callSellTop10SpecificDay", row.get("shortTop10SpecificDay"))
             entry["callBuyTop5SpecificQty"] += int(row.get("longTop5SpecificQty") or 0)
             entry["callSellTop5SpecificQty"] += int(row.get("shortTop5SpecificQty") or 0)
             entry["callBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
             entry["callSellTop10SpecificQty"] += int(row.get("shortTop10SpecificQty") or 0)
         elif option_side == "put":
-            entry["putBuyTop5SpecificDay"] += int(row.get("longTop5SpecificDay") or 0)
-            entry["putSellTop5SpecificDay"] += int(row.get("shortTop5SpecificDay") or 0)
-            entry["putBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
-            entry["putSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
+            add_optional_int(entry, "putBuyTop5SpecificDay", row.get("longTop5SpecificDay"))
+            add_optional_int(entry, "putSellTop5SpecificDay", row.get("shortTop5SpecificDay"))
+            add_optional_int(entry, "putBuyTop10SpecificDay", row.get("longTop10SpecificDay"))
+            add_optional_int(entry, "putSellTop10SpecificDay", row.get("shortTop10SpecificDay"))
             entry["putBuyTop5SpecificQty"] += int(row.get("longTop5SpecificQty") or 0)
             entry["putSellTop5SpecificQty"] += int(row.get("shortTop5SpecificQty") or 0)
             entry["putBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
@@ -2066,14 +2087,15 @@ def build_high_low_specific_alignment_rows(
         foreign_opt = foreign_opt_map.get(row["date"], {})
         contract = row.get("contract")
         date_text = row["date"]
-        cycle_start_date = monthly_cycle_start(contract) if contract else None
+        effective_contract = fut.get("effectiveContract") or contract
+        cycle_start_date = cycle_start_for_report_date(date_text, effective_contract)
 
         fut_cycle_totals = None
-        if contract and cycle_start_date:
-            cache_key = (date_text, cycle_start_date, contract)
+        if effective_contract and cycle_start_date:
+            cache_key = (date_text, cycle_start_date, effective_contract)
             fut_cycle_totals = fut_cycle_cache.get(cache_key)
             if cache_key not in fut_cycle_cache:
-                fut_cycle_totals = sum_large_trader_specific_cycle_changes(date_text, cycle_start_date, contract)
+                fut_cycle_totals = sum_large_trader_specific_cycle_changes(date_text, cycle_start_date, effective_contract)
                 fut_cycle_cache[cache_key] = fut_cycle_totals
 
         foreign_cycle_key = (date_text, cycle_start_date) if cycle_start_date else None
@@ -2082,23 +2104,18 @@ def build_high_low_specific_alignment_rows(
             foreign_fut_cycle_totals = sum_foreign_futures_cycle_changes(date_text, cycle_start_date)
             foreign_cycle_cache[foreign_cycle_key] = foreign_fut_cycle_totals
 
-        short_total = sum(
-            value or 0
-            for value in [
-                fut.get("shortTop10SpecificDay"),
-                foreign_fut.get("foreignFuturesSellDay"),
-            ]
-        )
-        long_total = sum(
-            value or 0
-            for value in [
-                fut.get("longTop10SpecificDay"),
-                foreign_fut.get("foreignFuturesBuyDay"),
-            ]
-        )
+        short_total = sum_complete_values([
+            fut.get("shortTop10SpecificDay"),
+            foreign_fut.get("foreignFuturesSellDay"),
+        ])
+        long_total = sum_complete_values([
+            fut.get("longTop10SpecificDay"),
+            foreign_fut.get("foreignFuturesBuyDay"),
+        ])
         rows.append(
             {
                 **row,
+                "largeTraderContract": effective_contract,
                 "cycleStartDate": cycle_start_date,
                 "futuresBuyTop5SpecificDay": fut.get("longTop5SpecificDay"),
                 "futuresSellTop5SpecificDay": fut.get("shortTop5SpecificDay"),
@@ -2223,14 +2240,14 @@ def normalize_high_low_alignment_rows(
         entry = opt_map.setdefault(
             row["date"],
             {
-                "callBuyTop5SpecificDay": 0,
-                "callSellTop5SpecificDay": 0,
-                "putBuyTop5SpecificDay": 0,
-                "putSellTop5SpecificDay": 0,
-                "callBuyTop10SpecificDay": 0,
-                "callSellTop10SpecificDay": 0,
-                "putBuyTop10SpecificDay": 0,
-                "putSellTop10SpecificDay": 0,
+                "callBuyTop5SpecificDay": None,
+                "callSellTop5SpecificDay": None,
+                "putBuyTop5SpecificDay": None,
+                "putSellTop5SpecificDay": None,
+                "callBuyTop10SpecificDay": None,
+                "callSellTop10SpecificDay": None,
+                "putBuyTop10SpecificDay": None,
+                "putSellTop10SpecificDay": None,
                 "callBuyTop5SpecificQty": 0,
                 "callSellTop5SpecificQty": 0,
                 "putBuyTop5SpecificQty": 0,
@@ -2242,19 +2259,19 @@ def normalize_high_low_alignment_rows(
             },
         )
         if option_side == "call":
-            entry["callBuyTop5SpecificDay"] += int(row.get("longTop5SpecificDay") or 0)
-            entry["callSellTop5SpecificDay"] += int(row.get("shortTop5SpecificDay") or 0)
-            entry["callBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
-            entry["callSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
+            add_optional_int(entry, "callBuyTop5SpecificDay", row.get("longTop5SpecificDay"))
+            add_optional_int(entry, "callSellTop5SpecificDay", row.get("shortTop5SpecificDay"))
+            add_optional_int(entry, "callBuyTop10SpecificDay", row.get("longTop10SpecificDay"))
+            add_optional_int(entry, "callSellTop10SpecificDay", row.get("shortTop10SpecificDay"))
             entry["callBuyTop5SpecificQty"] += int(row.get("longTop5SpecificQty") or 0)
             entry["callSellTop5SpecificQty"] += int(row.get("shortTop5SpecificQty") or 0)
             entry["callBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
             entry["callSellTop10SpecificQty"] += int(row.get("shortTop10SpecificQty") or 0)
         elif option_side == "put":
-            entry["putBuyTop5SpecificDay"] += int(row.get("longTop5SpecificDay") or 0)
-            entry["putSellTop5SpecificDay"] += int(row.get("shortTop5SpecificDay") or 0)
-            entry["putBuyTop10SpecificDay"] += int(row.get("longTop10SpecificDay") or 0)
-            entry["putSellTop10SpecificDay"] += int(row.get("shortTop10SpecificDay") or 0)
+            add_optional_int(entry, "putBuyTop5SpecificDay", row.get("longTop5SpecificDay"))
+            add_optional_int(entry, "putSellTop5SpecificDay", row.get("shortTop5SpecificDay"))
+            add_optional_int(entry, "putBuyTop10SpecificDay", row.get("longTop10SpecificDay"))
+            add_optional_int(entry, "putSellTop10SpecificDay", row.get("shortTop10SpecificDay"))
             entry["putBuyTop5SpecificQty"] += int(row.get("longTop5SpecificQty") or 0)
             entry["putSellTop5SpecificQty"] += int(row.get("shortTop5SpecificQty") or 0)
             entry["putBuyTop10SpecificQty"] += int(row.get("longTop10SpecificQty") or 0)
@@ -2298,20 +2315,21 @@ def normalize_high_low_alignment_rows(
         foreign_fut = foreign_fut_history_map.get(date_text, {})
         foreign_opt = foreign_opt_map.get(date_text, {})
         contract = base.get("contract") or previous.get("contract")
-        cycle_start_date = monthly_cycle_start(contract) if contract else None
-        fut_sell = fut.get("shortTop10SpecificDay", previous.get("futuresSellTop10SpecificDay"))
-        fut_buy = fut.get("longTop10SpecificDay", previous.get("futuresBuyTop10SpecificDay"))
-        foreign_fut_sell = foreign_fut.get("foreignFuturesSellDay", previous.get("foreignFuturesSellDay"))
-        foreign_fut_buy = foreign_fut.get("foreignFuturesBuyDay", previous.get("foreignFuturesBuyDay"))
-        short_total = sum(value or 0 for value in [fut_sell, foreign_fut_sell])
-        long_total = sum(value or 0 for value in [fut_buy, foreign_fut_buy])
+        effective_contract = fut.get("effectiveContract") or previous.get("largeTraderContract") or contract
+        cycle_start_date = cycle_start_for_report_date(date_text, effective_contract)
+        fut_sell = fut.get("shortTop10SpecificDay")
+        fut_buy = fut.get("longTop10SpecificDay")
+        foreign_fut_sell = foreign_fut.get("foreignFuturesSellDay")
+        foreign_fut_buy = foreign_fut.get("foreignFuturesBuyDay")
+        short_total = sum_complete_values([fut_sell, foreign_fut_sell])
+        long_total = sum_complete_values([fut_buy, foreign_fut_buy])
 
         fut_cycle_totals = None
-        if contract and cycle_start_date:
-            cache_key = (date_text, cycle_start_date, contract)
+        if effective_contract and cycle_start_date:
+            cache_key = (date_text, cycle_start_date, effective_contract)
             fut_cycle_totals = fut_cycle_cache.get(cache_key)
             if cache_key not in fut_cycle_cache:
-                fut_cycle_totals = sum_large_trader_specific_cycle_changes(date_text, cycle_start_date, contract)
+                fut_cycle_totals = sum_large_trader_specific_cycle_changes(date_text, cycle_start_date, effective_contract)
                 fut_cycle_cache[cache_key] = fut_cycle_totals
 
         foreign_cycle_key = (date_text, cycle_start_date) if cycle_start_date else None
@@ -2323,6 +2341,7 @@ def normalize_high_low_alignment_rows(
             {
                 **previous,
                 **base,
+                "largeTraderContract": effective_contract,
                 "cycleStartDate": cycle_start_date,
                 "futuresBuyTop5SpecificDay": fut.get("longTop5SpecificDay"),
                 "futuresSellTop5SpecificDay": fut.get("shortTop5SpecificDay"),
@@ -2344,14 +2363,14 @@ def normalize_high_low_alignment_rows(
                 "futuresSellTop10SpecificCycle": (
                     None if not fut_cycle_totals else fut_cycle_totals.get("shortTop10SpecificCycleSum")
                 ),
-                "callBuyTop5SpecificDay": opt.get("callBuyTop5SpecificDay", previous.get("callBuyTop5SpecificDay", 0)),
-                "callSellTop5SpecificDay": opt.get("callSellTop5SpecificDay", previous.get("callSellTop5SpecificDay", 0)),
-                "putBuyTop5SpecificDay": opt.get("putBuyTop5SpecificDay", previous.get("putBuyTop5SpecificDay", 0)),
-                "putSellTop5SpecificDay": opt.get("putSellTop5SpecificDay", previous.get("putSellTop5SpecificDay", 0)),
-                "callBuyTop10SpecificDay": opt.get("callBuyTop10SpecificDay", previous.get("callBuyTop10SpecificDay", 0)),
-                "callSellTop10SpecificDay": opt.get("callSellTop10SpecificDay", previous.get("callSellTop10SpecificDay", 0)),
-                "putBuyTop10SpecificDay": opt.get("putBuyTop10SpecificDay", previous.get("putBuyTop10SpecificDay", 0)),
-                "putSellTop10SpecificDay": opt.get("putSellTop10SpecificDay", previous.get("putSellTop10SpecificDay", 0)),
+                "callBuyTop5SpecificDay": opt.get("callBuyTop5SpecificDay"),
+                "callSellTop5SpecificDay": opt.get("callSellTop5SpecificDay"),
+                "putBuyTop5SpecificDay": opt.get("putBuyTop5SpecificDay"),
+                "putSellTop5SpecificDay": opt.get("putSellTop5SpecificDay"),
+                "callBuyTop10SpecificDay": opt.get("callBuyTop10SpecificDay"),
+                "callSellTop10SpecificDay": opt.get("callSellTop10SpecificDay"),
+                "putBuyTop10SpecificDay": opt.get("putBuyTop10SpecificDay"),
+                "putSellTop10SpecificDay": opt.get("putSellTop10SpecificDay"),
                 "callBuyTop5SpecificQty": opt.get("callBuyTop5SpecificQty", previous.get("callBuyTop5SpecificQty", 0)),
                 "callSellTop5SpecificQty": opt.get("callSellTop5SpecificQty", previous.get("callSellTop5SpecificQty", 0)),
                 "putBuyTop5SpecificQty": opt.get("putBuyTop5SpecificQty", previous.get("putBuyTop5SpecificQty", 0)),
@@ -2360,8 +2379,8 @@ def normalize_high_low_alignment_rows(
                 "callSellTop10SpecificQty": opt.get("callSellTop10SpecificQty", previous.get("callSellTop10SpecificQty", 0)),
                 "putBuyTop10SpecificQty": opt.get("putBuyTop10SpecificQty", previous.get("putBuyTop10SpecificQty", 0)),
                 "putSellTop10SpecificQty": opt.get("putSellTop10SpecificQty", previous.get("putSellTop10SpecificQty", 0)),
-                "foreignFuturesBuyDay": foreign_fut_buy if foreign_fut_buy is not None else previous.get("foreignFuturesBuyDay"),
-                "foreignFuturesSellDay": foreign_fut_sell if foreign_fut_sell is not None else previous.get("foreignFuturesSellDay"),
+                "foreignFuturesBuyDay": foreign_fut_buy,
+                "foreignFuturesSellDay": foreign_fut_sell,
                 "foreignFuturesBuyCycle": (
                     None if not foreign_fut_cycle_totals else foreign_fut_cycle_totals.get("foreignFuturesBuyCycleSum")
                 ),
@@ -2710,9 +2729,9 @@ def build_range_large_trader_fut_history_rows(range_rows: list[dict[str, Any]]) 
             fetch_previous_large_trader_business_day(date_text, effective_contract),
         )
         prev = next((row for row in (prev_rows or []) if row.get("contractType") == "monthly"), None)
-        if not prev:
-            prev = current
-        rows.append(large_trader_fut_history_entry(date_text, current, prev))
+        entry = large_trader_fut_history_entry(date_text, current, prev)
+        entry["effectiveContract"] = effective_contract
+        rows.append(entry)
     return rows
 
 
@@ -2753,8 +2772,10 @@ def build_range_large_trader_opt_history_rows(range_rows: list[dict[str, Any]]) 
                 None,
             )
             if not prev:
-                prev = row
-            rows.append(large_trader_opt_history_entry(date_text, row, prev))
+                prev = None
+            entry = large_trader_opt_history_entry(date_text, row, prev)
+            entry["effectiveContract"] = effective_contract
+            rows.append(entry)
     return rows
 
 
