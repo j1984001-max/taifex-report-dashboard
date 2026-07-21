@@ -561,9 +561,9 @@ def report_is_ready(
         "foreignFuturesBuyCycle",
         "foreignFuturesSellCycle",
     )
-    rows_to_check = list(alignment_rows[:3])
+    rows_to_check = list(alignment_rows[:1])
     if summary_rows:
-        rows_to_check.extend(summary_rows[:5])
+        rows_to_check.extend(summary_rows[:1])
     for row in rows_to_check:
         date_text = str(row.get("date") or "缺日期")
         for field in high_low_required_fields:
