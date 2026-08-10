@@ -2,9 +2,11 @@ name: TAIFEX High-Low Fast Push
 
 on:
   schedule:
-    # Asia/Taipei: 15:01-15:29 every 2 minutes, then 15:35/40/45/50/55.
-    # This is intentionally separate from the heavier daily PDF/email workflow.
-    - cron: "1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,35,40,45,50,55 7 * * 1-5"
+    # Asia/Taipei: probe at 15:01, then every 5 minutes through 15:31.
+    # GitHub only guarantees scheduled workflows at intervals of 5 minutes or longer.
+    - cron: "1-31/5 7 * * 1-5"
+    # Continue every 5 minutes through 15:56 if TAIFEX publishes later than usual.
+    - cron: "36-56/5 7 * * 1-5"
     # Asia/Taipei backup wakeups: 16:02, 16:12, 16:22, 16:32, 16:42, 16:52.
     - cron: "2,12,22,32,42,52 8 * * 1-5"
     # Asia/Taipei late safety wakeups: 17:12 and 17:42.
@@ -35,42 +37,96 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check whether today's high-low screenshots were already delivered
+        id: delivery
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          from datetime import datetime, timedelta
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          holidays = {
+              "2026/01/01", "2026/02/16", "2026/02/17", "2026/02/18", "2026/02/19",
+              "2026/02/20", "2026/02/27", "2026/04/03", "2026/04/06", "2026/05/01",
+              "2026/06/19", "2026/09/25", "2026/10/09",
+          }
+
+          current = datetime.now(ZoneInfo("Asia/Taipei"))
+          while current.weekday() >= 5 or current.strftime("%Y/%m/%d") in holidays:
+              current -= timedelta(days=1)
+          expected = current.strftime("%Y/%m/%d")
+          slug = expected.replace("/", "-")
+          delivery = None
+
+          local_path = Path("snapshots") / f"{slug}.delivery.json"
+          if local_path.exists():
+              delivery = json.loads(local_path.read_text(encoding="utf-8"))
+          else:
+              url = f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/main/snapshots/{slug}.delivery.json"
+              request = urllib.request.Request(url, headers={"Cache-Control": "no-cache", "User-Agent": "Mozilla/5.0"})
+              try:
+                  with urllib.request.urlopen(request, timeout=15) as response:
+                      delivery = json.loads(response.read().decode("utf-8", "ignore"))
+              except urllib.error.HTTPError as exc:
+                  if exc.code != 404:
+                      raise
+
+          done = bool(delivery and delivery.get("date") == expected and delivery.get("highLowTelegram") is True)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"done={'true' if done else 'false'}\n")
+              output.write(f"date={expected}\n")
+          print(json.dumps({"date": expected, "alreadyDelivered": done, "delivery": delivery}, ensure_ascii=False))
+          PY
+
       - name: Set up Python
+        if: steps.delivery.outputs.done != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-1.59.0-${{ runner.os }}
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install playwright==1.59.0
-          python3 -m playwright install --with-deps chromium
+      - name: Install report dependencies
+        if: steps.delivery.outputs.done != 'true'
+        run: pip install -r requirements.txt
 
       - name: Configure git author
+        if: steps.delivery.outputs.done != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Publish latest snapshot first
+        if: steps.delivery.outputs.done != 'true'
         env:
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
-          REPORT_MAX_RETRIES: "3"
-          REPORT_RETRY_DELAY_SECONDS: "30"
+          REPORT_MAX_RETRIES: "0"
+          REPORT_RETRY_DELAY_SECONDS: "0"
           REQUEST_MIN_INTERVAL_SECONDS: "0.35"
-          REQUEST_TIMEOUT_SECONDS: "45"
-          REQUEST_MAX_RETRIES: "2"
+          REQUEST_TIMEOUT_SECONDS: "25"
+          REQUEST_MAX_RETRIES: "0"
         run: |
           set -o pipefail
-          python3 send_daily_push.py --snapshot-only --max-retries 3 --retry-delay 30 2>&1 | tee high-low-snapshot-result.json
+          python3 send_daily_push.py --snapshot-only --max-retries 0 --retry-delay 0 2>&1 | tee high-low-snapshot-result.json
+
+      - name: Cache Playwright browsers
+        if: steps.delivery.outputs.done != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.59.0-${{ runner.os }}
+
+      - name: Install screenshot dependencies
+        if: steps.delivery.outputs.done != 'true'
+        run: |
+          pip install playwright==1.59.0
+          python3 -m playwright install --with-deps chromium
 
       - name: Send high-low screenshots
+        if: steps.delivery.outputs.done != 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -79,14 +135,14 @@ jobs:
           REPORT_RETRY_DELAY_SECONDS: "20"
           SEND_FULL_TELEGRAM: "0"
           REQUEST_MIN_INTERVAL_SECONDS: "0.35"
-          REQUEST_TIMEOUT_SECONDS: "45"
-          REQUEST_MAX_RETRIES: "1"
+          REQUEST_TIMEOUT_SECONDS: "25"
+          REQUEST_MAX_RETRIES: "0"
         run: |
           set -o pipefail
           python3 send_daily_push.py --high-low-only --max-retries 0 --retry-delay 20 2>&1 | tee high-low-push-result.json
 
       - name: Verify high-low delivery
-        if: success()
+        if: success() && steps.delivery.outputs.done != 'true'
         run: |
           python3 - <<'PY'
           import base64
