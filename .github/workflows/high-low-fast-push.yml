@@ -61,13 +61,14 @@ jobs:
       - name: Publish latest snapshot first
         env:
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
-          REPORT_MAX_RETRIES: "1"
-          REPORT_RETRY_DELAY_SECONDS: "20"
+          REPORT_MAX_RETRIES: "3"
+          REPORT_RETRY_DELAY_SECONDS: "30"
           REQUEST_MIN_INTERVAL_SECONDS: "0.35"
-          REQUEST_MAX_RETRIES: "1"
+          REQUEST_TIMEOUT_SECONDS: "45"
+          REQUEST_MAX_RETRIES: "2"
         run: |
           set -o pipefail
-          python3 send_daily_push.py --snapshot-only --max-retries 1 --retry-delay 20 2>&1 | tee high-low-snapshot-result.json
+          python3 send_daily_push.py --snapshot-only --max-retries 3 --retry-delay 30 2>&1 | tee high-low-snapshot-result.json
 
       - name: Send high-low screenshots
         env:
@@ -78,7 +79,8 @@ jobs:
           REPORT_RETRY_DELAY_SECONDS: "20"
           SEND_FULL_TELEGRAM: "0"
           REQUEST_MIN_INTERVAL_SECONDS: "0.35"
-          REQUEST_MAX_RETRIES: "0"
+          REQUEST_TIMEOUT_SECONDS: "45"
+          REQUEST_MAX_RETRIES: "1"
         run: |
           set -o pipefail
           python3 send_daily_push.py --high-low-only --max-retries 0 --retry-delay 20 2>&1 | tee high-low-push-result.json
@@ -164,9 +166,49 @@ jobs:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 - <<'PY'
+          import json
           import os
+          import sys
           import urllib.parse
           import urllib.request
+          from datetime import datetime, time, timedelta
+          from zoneinfo import ZoneInfo
+
+          holidays = {
+              "2026/01/01", "2026/02/16", "2026/02/17", "2026/02/18", "2026/02/19",
+              "2026/02/20", "2026/02/27", "2026/04/03", "2026/04/06", "2026/05/01",
+              "2026/06/19", "2026/09/25", "2026/10/09",
+          }
+
+          current = datetime.now(ZoneInfo("Asia/Taipei"))
+          trading_day = current
+          while trading_day.weekday() >= 5 or trading_day.strftime("%Y/%m/%d") in holidays:
+              trading_day -= timedelta(days=1)
+          expected = trading_day.strftime("%Y/%m/%d")
+          slug = expected.replace("/", "-")
+
+          def fetch_json(url: str) -> dict | None:
+              req = urllib.request.Request(
+                  url,
+                  headers={"Cache-Control": "no-cache", "Pragma": "no-cache", "User-Agent": "Mozilla/5.0"},
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as resp:
+                      return json.loads(resp.read().decode("utf-8", "ignore"))
+              except Exception as exc:
+                  print(json.dumps({"deliveryCheck": "failed", "error": str(exc)}, ensure_ascii=False))
+                  return None
+
+          delivery = fetch_json(
+              f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/main/snapshots/{slug}.delivery.json"
+          )
+          if delivery and delivery.get("date") == expected and delivery.get("highLowTelegram") is True:
+              print(json.dumps({"alert": "skipped", "reason": "delivery_already_complete", "delivery": delivery}, ensure_ascii=False))
+              sys.exit(0)
+
+          if current.time() < time(17, 45):
+              print(json.dumps({"alert": "skipped", "reason": "before_final_watchdog_window", "date": expected}, ensure_ascii=False))
+              sys.exit(0)
 
           token = os.environ["TELEGRAM_BOT_TOKEN"]
           chat_id = os.environ["TELEGRAM_CHAT_ID"]
