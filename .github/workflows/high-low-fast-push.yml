@@ -17,6 +17,10 @@ on:
         description: "External trigger reason."
         required: false
         default: "manual"
+      report_date:
+        description: "Optional recovery date in YYYY/MM/DD."
+        required: false
+        default: ""
   repository_dispatch:
     types: [taifex-high-low-fast-push]
 
@@ -39,6 +43,8 @@ jobs:
 
       - name: Check whether today's high-low screenshots were already delivered
         id: delivery
+        env:
+          TARGET_REPORT_DATE: ${{ inputs.report_date }}
         run: |
           python3 - <<'PY'
           import json
@@ -55,10 +61,11 @@ jobs:
               "2026/06/19", "2026/09/25", "2026/10/09",
           }
 
+          requested = os.environ.get("TARGET_REPORT_DATE", "").strip()
           current = datetime.now(ZoneInfo("Asia/Taipei"))
           while current.weekday() >= 5 or current.strftime("%Y/%m/%d") in holidays:
               current -= timedelta(days=1)
-          expected = current.strftime("%Y/%m/%d")
+          expected = requested or current.strftime("%Y/%m/%d")
           slug = expected.replace("/", "-")
           delivery = None
 
@@ -110,7 +117,11 @@ jobs:
           REQUEST_MAX_RETRIES: "0"
         run: |
           set -o pipefail
-          python3 send_daily_push.py --snapshot-only --max-retries 0 --retry-delay 0 2>&1 | tee high-low-snapshot-result.json
+          date_args=()
+          if [ -n "${{ inputs.report_date }}" ]; then
+            date_args=(--date "${{ inputs.report_date }}")
+          fi
+          python3 send_daily_push.py "${date_args[@]}" --snapshot-only --max-retries 0 --retry-delay 0 2>&1 | tee high-low-snapshot-result.json
 
       - name: Cache Playwright browsers
         if: steps.delivery.outputs.done != 'true'
@@ -139,10 +150,16 @@ jobs:
           REQUEST_MAX_RETRIES: "0"
         run: |
           set -o pipefail
-          python3 send_daily_push.py --high-low-only --max-retries 0 --retry-delay 20 2>&1 | tee high-low-push-result.json
+          date_args=()
+          if [ -n "${{ inputs.report_date }}" ]; then
+            date_args=(--date "${{ inputs.report_date }}")
+          fi
+          python3 send_daily_push.py "${date_args[@]}" --high-low-only --max-retries 0 --retry-delay 20 2>&1 | tee high-low-push-result.json
 
       - name: Verify high-low delivery
         if: success() && steps.delivery.outputs.done != 'true'
+        env:
+          TARGET_REPORT_DATE: ${{ inputs.report_date }}
         run: |
           python3 - <<'PY'
           import base64
@@ -158,10 +175,11 @@ jobs:
               "2026/06/19", "2026/09/25", "2026/10/09",
           }
 
+          requested = os.environ.get("TARGET_REPORT_DATE", "").strip()
           current = datetime.now(ZoneInfo("Asia/Taipei"))
           while current.weekday() >= 5 or current.strftime("%Y/%m/%d") in holidays:
               current -= timedelta(days=1)
-          expected = current.strftime("%Y/%m/%d")
+          expected = requested or current.strftime("%Y/%m/%d")
           slug = expected.replace("/", "-")
 
           def fetch_json(url: str) -> dict:
