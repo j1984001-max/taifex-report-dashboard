@@ -16,6 +16,7 @@ import urllib.request
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1335,6 +1336,7 @@ def fetch_futures_history_rows(report_date: str, count: int = 5) -> list[dict[st
     return history
 
 
+@lru_cache(maxsize=512)
 def fetch_futures_rows_for_date(report_date: str) -> list[dict[str, Any]]:
     try:
         html = request_html(
@@ -1808,88 +1810,74 @@ def sum_large_trader_specific_cycle_changes(
     start_date: str,
     monthly_code: str,
 ) -> dict[str, int | None]:
-    series = fetch_business_day_series_until(
-        end_date,
-        start_date,
-        fetch_fn=lambda d: fetch_large_trader_for_date(d, monthly_code),
-        include_prior_business_day=True,
-    )
-    totals = {
-        "longTop5SpecificCycleSum": 0,
-        "shortTop5SpecificCycleSum": 0,
-        "longTop10SpecificCycleSum": 0,
-        "shortTop10SpecificCycleSum": 0,
+    current_rows = fetch_large_trader_for_date(end_date, monthly_code) or []
+    baseline_rows = fetch_large_trader_for_date(previous_business_day(start_date), monthly_code) or []
+    current = next((row for row in current_rows if row.get("contractType") == "monthly"), None)
+    baseline = next((row for row in baseline_rows if row.get("contractType") == "monthly"), None)
+    fields = {
+        "longTop5SpecificCycleSum": "longTop5SpecificQty",
+        "shortTop5SpecificCycleSum": "shortTop5SpecificQty",
+        "longTop10SpecificCycleSum": "longTop10SpecificQty",
+        "shortTop10SpecificCycleSum": "shortTop10SpecificQty",
     }
-    seen = False
-    for idx, item in enumerate(series):
-        date_text = item["date"]
-        if date_text < start_date:
-            continue
-        day_rows = item["value"]
-        row = next((r for r in day_rows if r.get("contractType") == "monthly"), None)
-        prev_rows = series[idx + 1]["value"] if idx + 1 < len(series) else None
-        prev_row = next((r for r in (prev_rows or []) if r.get("contractType") == "monthly"), None)
-        if not row or not prev_row:
-            continue
-        seen = True
-        totals["longTop5SpecificCycleSum"] += int(row.get("longTop5SpecificQty") or 0) - int(prev_row.get("longTop5SpecificQty") or 0)
-        totals["shortTop5SpecificCycleSum"] += int(row.get("shortTop5SpecificQty") or 0) - int(prev_row.get("shortTop5SpecificQty") or 0)
-        totals["longTop10SpecificCycleSum"] += int(row.get("longTop10SpecificQty") or 0) - int(prev_row.get("longTop10SpecificQty") or 0)
-        totals["shortTop10SpecificCycleSum"] += int(row.get("shortTop10SpecificQty") or 0) - int(prev_row.get("shortTop10SpecificQty") or 0)
-    if not seen:
-        return {key: None for key in totals}
-    return totals
+    if current and not baseline and is_rollover_settlement_day(end_date, monthly_code):
+        return {key: 0 for key in fields}
+    if not current or not baseline:
+        return {key: None for key in fields}
+    return {
+        result_key: int(current.get(source_key) or 0) - int(baseline.get(source_key) or 0)
+        for result_key, source_key in fields.items()
+    }
+
+
+def is_rollover_settlement_day(date_text: str, monthly_code: str | None) -> bool:
+    if not monthly_code:
+        return False
+    year = int(monthly_code[:4])
+    month = int(monthly_code[4:])
+    if month == 1:
+        previous_year, previous_month = year - 1, 12
+    else:
+        previous_year, previous_month = year, month - 1
+    return date_text == third_wednesday(previous_year, previous_month)
 
 
 def cycle_start_for_report_date(date_text: str, monthly_code: str | None) -> str | None:
     if not monthly_code:
         return None
     cycle_start = monthly_cycle_start(monthly_code)
-    return cycle_start if cycle_start <= date_text else None
+    if cycle_start <= date_text:
+        return cycle_start
+
+    # On monthly settlement day TAIFEX may already publish large-trader data
+    # under the next contract, one business day before that contract's normal
+    # cycle start. Treat the rollover day as the first observable cycle day.
+    return date_text if is_rollover_settlement_day(date_text, monthly_code) else None
 
 
 def sum_foreign_futures_cycle_changes(
     end_date: str,
     start_date: str,
 ) -> dict[str, int | None]:
-    series = fetch_business_day_series_until(
-        end_date,
-        start_date,
-        fetch_fn=fetch_futures_rows_for_date,
-        include_prior_business_day=True,
-    )
-    buy_total = 0
-    sell_total = 0
-    seen = False
-    for idx, item in enumerate(series):
-        date_text = item["date"]
-        if date_text < start_date:
-            continue
-        row = next(
+    current_rows = fetch_futures_rows_for_date(end_date)
+    baseline_rows = fetch_futures_rows_for_date(previous_business_day(start_date))
+
+    def foreign_tx(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+        return next(
             (
-                r for r in item["value"]
-                if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
+                row for row in rows
+                if row.get("product") == "臺股期貨" and row.get("institution") == "外資"
             ),
             None,
         )
-        prev_rows = series[idx + 1]["value"] if idx + 1 < len(series) else None
-        prev_row = next(
-            (
-                r for r in (prev_rows or [])
-                if r.get("product") == "臺股期貨" and r.get("institution") == "外資"
-            ),
-            None,
-        )
-        if not row or not prev_row:
-            continue
-        seen = True
-        buy_total += int(row.get("oiLongQty") or 0) - int(prev_row.get("oiLongQty") or 0)
-        sell_total += int(row.get("oiShortQty") or 0) - int(prev_row.get("oiShortQty") or 0)
-    if not seen:
+
+    current = foreign_tx(current_rows)
+    baseline = foreign_tx(baseline_rows)
+    if not current or not baseline:
         return {"foreignFuturesBuyCycleSum": None, "foreignFuturesSellCycleSum": None}
     return {
-        "foreignFuturesBuyCycleSum": buy_total,
-        "foreignFuturesSellCycleSum": sell_total,
+        "foreignFuturesBuyCycleSum": int(current.get("oiLongQty") or 0) - int(baseline.get("oiLongQty") or 0),
+        "foreignFuturesSellCycleSum": int(current.get("oiShortQty") or 0) - int(baseline.get("oiShortQty") or 0),
     }
 
 
@@ -2489,7 +2477,7 @@ def build_large_trader_fut_history_rows(end_date: str, monthly_code: str, *, cou
 
         def delta(key: str) -> int | None:
             if not prev_row:
-                return None
+                return 0 if is_rollover_settlement_day(date_text, monthly_code) else None
             if row.get(key) is None or prev_row.get(key) is None:
                 return None
             return int(row[key]) - int(prev_row[key])
@@ -2549,7 +2537,7 @@ def build_large_trader_opt_history_rows(end_date: str, monthly_code: str, *, cou
 
             def delta(key: str) -> int | None:
                 if not prev:
-                    return None
+                    return 0 if is_rollover_settlement_day(date_text, monthly_code) else None
                 if row.get(key) is None or prev.get(key) is None:
                     return None
                 return int(row[key]) - int(prev[key])
@@ -2731,6 +2719,13 @@ def build_range_large_trader_fut_history_rows(range_rows: list[dict[str, Any]]) 
         prev = next((row for row in (prev_rows or []) if row.get("contractType") == "monthly"), None)
         entry = large_trader_fut_history_entry(date_text, current, prev)
         entry["effectiveContract"] = effective_contract
+        if not prev and is_rollover_settlement_day(date_text, effective_contract):
+            for key in (
+                "longTop5Day", "shortTop5Day", "longTop10Day", "shortTop10Day",
+                "longTop5SpecificDay", "shortTop5SpecificDay",
+                "longTop10SpecificDay", "shortTop10SpecificDay",
+            ):
+                entry[key] = 0
         rows.append(entry)
     return rows
 
@@ -2775,6 +2770,13 @@ def build_range_large_trader_opt_history_rows(range_rows: list[dict[str, Any]]) 
                 prev = None
             entry = large_trader_opt_history_entry(date_text, row, prev)
             entry["effectiveContract"] = effective_contract
+            if not prev and is_rollover_settlement_day(date_text, effective_contract):
+                for key in (
+                    "longTop5Day", "shortTop5Day", "longTop10Day", "shortTop10Day",
+                    "longTop5SpecificDay", "shortTop5SpecificDay",
+                    "longTop10SpecificDay", "shortTop10SpecificDay",
+                ):
+                    entry[key] = 0
             rows.append(entry)
     return rows
 
@@ -3181,6 +3183,7 @@ def parse_large_trader_option_rows(table: list[list[str]], monthly_code: str) ->
     return rows
 
 
+@lru_cache(maxsize=512)
 def fetch_large_trader_option_for_date(report_date: str, monthly_code: str) -> list[dict[str, Any]] | None:
     try:
         html = request_html(
@@ -3195,6 +3198,7 @@ def fetch_large_trader_option_for_date(report_date: str, monthly_code: str) -> l
         return None
 
 
+@lru_cache(maxsize=512)
 def fetch_large_trader_for_date(report_date: str, monthly_code: str) -> list[dict[str, Any]] | None:
     try:
         rows = request_csv_rows(
