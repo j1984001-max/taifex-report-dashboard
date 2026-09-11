@@ -1,0 +1,38 @@
+name: TAIFEX High-Low Standby
+
+on:
+  # While Cloudflare reports a Cron Trigger incident, start early enough to
+  # survive GitHub's observed schedule delay and wait for the 15:00 release.
+  schedule:
+    - cron: "47 0-6 * * 1-5"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/scripts/high_low_standby.py"
+      - ".github/workflows/high-low-standby.yml"
+
+concurrency:
+  group: taifex-high-low-standby
+  cancel-in-progress: true
+
+jobs:
+  standby:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for TAIFEX release and dispatch fast push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_MIN_INTERVAL_SECONDS: "0.35"
+          REQUEST_TIMEOUT_SECONDS: "25"
+          REQUEST_MAX_RETRIES: "0"
+          STANDBY_SMOKE_TEST: ${{ github.event_name == 'push' && '1' || '0' }}
+        run: python3 -u .github/scripts/high_low_standby.py
