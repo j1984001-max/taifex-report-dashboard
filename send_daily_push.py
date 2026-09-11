@@ -648,6 +648,7 @@ def main() -> None:
     parser.add_argument("--chat-id", default=os.environ.get("TELEGRAM_CHAT_ID", DEFAULT_TELEGRAM_CHAT_ID), help="Telegram chat id.")
     parser.add_argument("--quick-only", action="store_true", help="Only send the quick overview and C/D screenshots (no full text, no email).")
     parser.add_argument("--high-low-only", action="store_true", help="Only send the high/low overview and high/low screenshots.")
+    parser.add_argument("--force-high-low-resend", action="store_true", help="Resend high/low Telegram items even when delivery is already marked complete.")
     parser.add_argument("--snapshot-only", action="store_true", help="Only build and publish the JSON snapshot for the public site.")
     parser.add_argument("--max-retries", type=int, default=int(os.environ.get("REPORT_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))), help="Max retries when the report is not ready.")
     parser.add_argument("--retry-delay", type=int, default=int(os.environ.get("REPORT_RETRY_DELAY_SECONDS", str(DEFAULT_RETRY_DELAY_SECONDS))), help="Retry delay in seconds when the report is not ready.")
@@ -781,7 +782,7 @@ def main() -> None:
     full_messages = split_telegram_text(decorate_telegram_text(report["telegram"])) if send_full_telegram else []
 
     results = []
-    if delivery_state.get("highLowTelegram") is not True:
+    if args.force_high_low_resend or delivery_state.get("highLowTelegram") is not True:
         for message in high_low_messages:
             results.append(send_telegram_message(token, args.chat_id, message))
 
