@@ -1,6 +1,8 @@
 {
   "highLowTelegram": true,
   "date": "2026/09/29",
-  "updatedAt": "2026-09-29T21:42:24+08:00",
-  "detailTelegram": true
+  "updatedAt": "2026-09-29T21:42:29+08:00",
+  "detailTelegram": true,
+  "email": true,
+  "complete": true
 }
