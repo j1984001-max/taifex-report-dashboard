@@ -16,6 +16,7 @@ REPO = os.environ.get("GITHUB_REPOSITORY", "j1984001-max/taifex-report-dashboard
 WORKFLOW_ID = "high-low-fast-push.yml"
 TAIPEI = ZoneInfo("Asia/Taipei")
 ACTIVE_RUN_STATES = {"queued", "in_progress", "waiting", "requested", "pending"}
+MIN_HIGH_LOW_TELEGRAM_ITEMS = 3
 HOLIDAYS = {
     "2026/01/01", "2026/02/16", "2026/02/17", "2026/02/18", "2026/02/19",
     "2026/02/20", "2026/02/27", "2026/04/03", "2026/04/06", "2026/05/01",
@@ -73,10 +74,16 @@ def delivery_is_complete(report_date: str) -> bool:
         if exc.code == 404:
             return False
         raise
+    if not isinstance(payload, dict):
+        return False
+    message_ids = payload.get("highLowTelegramMessageIds")
     return bool(
-        isinstance(payload, dict)
-        and payload.get("date") == report_date
+        payload.get("date") == report_date
         and payload.get("highLowTelegram") is True
+        and isinstance(message_ids, list)
+        and len(message_ids) >= MIN_HIGH_LOW_TELEGRAM_ITEMS
+        and payload.get("highLowTelegramItemCount") == len(message_ids)
+        and all(type(message_id) is int and message_id > 0 for message_id in message_ids)
     )
 
 
@@ -137,7 +144,7 @@ def source_is_ready(report_date: str) -> tuple[bool, str]:
 
 def run_release_watch(token: str, report_date: str, now: datetime) -> None:
     target = datetime.combine(now.date(), datetime_time(15, 1), tzinfo=TAIPEI)
-    deadline = datetime.combine(now.date(), datetime_time(15, 41), tzinfo=TAIPEI)
+    deadline = datetime.combine(now.date(), datetime_time(16, 31), tzinfo=TAIPEI)
 
     if sleep_until(target, report_date):
         return
@@ -174,7 +181,7 @@ def run_release_watch(token: str, report_date: str, now: datetime) -> None:
         if now >= deadline:
             print(json.dumps({"standbyDeadlineReached": report_date}), flush=True)
             return
-        time.sleep(120)
+        time.sleep(60)
 
 
 def main() -> None:

@@ -4,7 +4,7 @@ on:
   schedule:
     # Asia/Taipei: 15:34, 16:04, 16:34, 17:04, 17:34.
     # If the fast push schedule or external trigger misses, this checks delivery
-    # state and dispatches the fast workflow only when today's high-low card is absent.
+    # state and dispatches the fast workflow unless all three Telegram items are proven delivered.
     - cron: "34 7 * * 1-5"
     - cron: "4,34 8 * * 1-5"
     - cron: "4,34 9 * * 1-5"
@@ -65,7 +65,17 @@ jobs:
                   raise
 
           delivery = fetch_json(f"https://raw.githubusercontent.com/{repo}/main/snapshots/{slug}.delivery.json")
-          if delivery and delivery.get("date") == expected and delivery.get("highLowTelegram") is True:
+          message_ids = delivery.get("highLowTelegramMessageIds") if delivery else None
+          delivery_complete = bool(
+              delivery
+              and delivery.get("date") == expected
+              and delivery.get("highLowTelegram") is True
+              and isinstance(message_ids, list)
+              and len(message_ids) >= 3
+              and delivery.get("highLowTelegramItemCount") == len(message_ids)
+              and all(type(message_id) is int and message_id > 0 for message_id in message_ids)
+          )
+          if delivery_complete:
               print(json.dumps({"status": "already_delivered", "date": expected, "delivery": delivery}, ensure_ascii=False))
               sys.exit(0)
 

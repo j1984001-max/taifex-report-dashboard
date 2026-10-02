@@ -42,6 +42,7 @@ TELEGRAM_LIMIT = 3500
 DEFAULT_TELEGRAM_CHAT_ID = "7154157141"
 DEFAULT_RETRY_DELAY_SECONDS = 300
 DEFAULT_MAX_RETRIES = 2
+MIN_HIGH_LOW_TELEGRAM_ITEMS = 3
 
 
 def delivery_state_path(report_date: str) -> Path:
@@ -66,6 +67,18 @@ def save_delivery_state(report_date: str, state: dict[str, object]) -> None:
         "updatedAt": datetime.now(TW_TZ).isoformat(timespec="seconds"),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def high_low_delivery_complete(state: dict[str, object]) -> bool:
+    message_ids = state.get("highLowTelegramMessageIds")
+    item_count = state.get("highLowTelegramItemCount")
+    return bool(
+        state.get("highLowTelegram") is True
+        and isinstance(message_ids, list)
+        and len(message_ids) >= MIN_HIGH_LOW_TELEGRAM_ITEMS
+        and item_count == len(message_ids)
+        and all(type(message_id) is int and message_id > 0 for message_id in message_ids)
+    )
 
 
 def parse_dotenv(path: Path) -> dict[str, str]:
@@ -688,7 +701,11 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 existing_ready = False
                 existing_reason = f"existing_snapshot_invalid: {type(exc).__name__}: {exc}"
-            if existing_ready and delivery_state.get("complete") is True:
+            if (
+                existing_ready
+                and delivery_state.get("complete") is True
+                and high_low_delivery_complete(delivery_state)
+            ):
                 print(json.dumps({
                     "date": expected_date,
                     "skipped": True,
@@ -789,7 +806,7 @@ def main() -> None:
     full_messages = split_telegram_text(decorate_telegram_text(report["telegram"])) if send_full_telegram else []
 
     results = []
-    if args.force_high_low_resend or delivery_state.get("highLowTelegram") is not True:
+    if args.force_high_low_resend or not high_low_delivery_complete(delivery_state):
         high_low_shots = capture_report_screenshots(
             report["meta"]["date"],
             report=report,
@@ -835,7 +852,23 @@ def main() -> None:
                     data=high_low_shots["high_low_summary"],
                 )
             )
+        high_low_message_ids = [
+            item.get("result", {}).get("message_id")
+            for item in results
+        ]
+        expected_high_low_items = len(high_low_messages) + 2
+        if (
+            len(high_low_message_ids) != expected_high_low_items
+            or len(high_low_message_ids) < MIN_HIGH_LOW_TELEGRAM_ITEMS
+            or any(type(message_id) is not int or message_id <= 0 for message_id in high_low_message_ids)
+        ):
+            raise RuntimeError(
+                "高低點 Telegram 回覆不完整，不寫入送達標記："
+                f"expected={expected_high_low_items}, ids={high_low_message_ids}"
+            )
         delivery_state["highLowTelegram"] = True
+        delivery_state["highLowTelegramItemCount"] = len(high_low_message_ids)
+        delivery_state["highLowTelegramMessageIds"] = high_low_message_ids
         save_delivery_state(report["meta"]["date"], delivery_state)
         publish_snapshot(report["meta"]["date"])
 
@@ -915,9 +948,10 @@ def main() -> None:
     if delivery_state.get("email") is not True:
         email_to = send_email(report, pdf_data)
         delivery_state["email"] = True
-    delivery_state["complete"] = all(
-        delivery_state.get(key) is True
-        for key in ("highLowTelegram", "detailTelegram", "email")
+    delivery_state["complete"] = bool(
+        high_low_delivery_complete(delivery_state)
+        and delivery_state.get("detailTelegram") is True
+        and delivery_state.get("email") is True
     )
     save_delivery_state(report["meta"]["date"], delivery_state)
     delivery_publish_result = publish_snapshot(report["meta"]["date"])

@@ -82,7 +82,16 @@ jobs:
                   if exc.code != 404:
                       raise
 
-          done = bool(delivery and delivery.get("date") == expected and delivery.get("highLowTelegram") is True)
+          message_ids = delivery.get("highLowTelegramMessageIds") if delivery else None
+          done = bool(
+              delivery
+              and delivery.get("date") == expected
+              and delivery.get("highLowTelegram") is True
+              and isinstance(message_ids, list)
+              and len(message_ids) >= 3
+              and delivery.get("highLowTelegramItemCount") == len(message_ids)
+              and all(type(message_id) is int and message_id > 0 for message_id in message_ids)
+          )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"done={'true' if done else 'false'}\n")
               output.write(f"date={expected}\n")
@@ -216,10 +225,23 @@ jobs:
               raise SystemExit(f"high-low first row missing fields: {missing}")
 
           delivery = fetch_repo_json(f"snapshots/{slug}.delivery.json")
-          if delivery.get("date") != expected or delivery.get("highLowTelegram") is not True:
+          message_ids = delivery.get("highLowTelegramMessageIds")
+          delivery_complete = bool(
+              delivery.get("date") == expected
+              and delivery.get("highLowTelegram") is True
+              and isinstance(message_ids, list)
+              and len(message_ids) >= 3
+              and delivery.get("highLowTelegramItemCount") == len(message_ids)
+              and all(type(message_id) is int and message_id > 0 for message_id in message_ids)
+          )
+          if not delivery_complete:
               raise SystemExit(f"high-low delivery incomplete: {delivery}")
 
-          print(json.dumps({"verifiedHighLowDelivery": expected, "updatedAt": delivery.get("updatedAt")}, ensure_ascii=False))
+          print(json.dumps({
+              "verifiedHighLowDelivery": expected,
+              "telegramMessageIds": message_ids,
+              "updatedAt": delivery.get("updatedAt"),
+          }, ensure_ascii=False))
           PY
 
       - name: Upload high-low results
@@ -276,7 +298,17 @@ jobs:
           delivery = fetch_json(
               f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/main/snapshots/{slug}.delivery.json"
           )
-          if delivery and delivery.get("date") == expected and delivery.get("highLowTelegram") is True:
+          message_ids = delivery.get("highLowTelegramMessageIds") if delivery else None
+          delivery_complete = bool(
+              delivery
+              and delivery.get("date") == expected
+              and delivery.get("highLowTelegram") is True
+              and isinstance(message_ids, list)
+              and len(message_ids) >= 3
+              and delivery.get("highLowTelegramItemCount") == len(message_ids)
+              and all(type(message_id) is int and message_id > 0 for message_id in message_ids)
+          )
+          if delivery_complete:
               print(json.dumps({"alert": "skipped", "reason": "delivery_already_complete", "delivery": delivery}, ensure_ascii=False))
               sys.exit(0)
 

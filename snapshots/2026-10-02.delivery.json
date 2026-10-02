@@ -1,5 +1,11 @@
 {
   "highLowTelegram": true,
+  "highLowTelegramItemCount": 3,
+  "highLowTelegramMessageIds": [
+    4082,
+    4083,
+    4084
+  ],
   "detailTelegram": true,
   "email": true,
   "complete": true,

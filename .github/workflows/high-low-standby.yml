@@ -19,7 +19,7 @@ concurrency:
 jobs:
   standby:
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    timeout-minutes: 360
     permissions:
       actions: write
       contents: read

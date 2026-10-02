@@ -54,7 +54,15 @@ async function deliveryIsComplete(expectedDate) {
   const delivery = await fetchJson(
     `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/snapshots/${slug}.delivery.json`,
   );
-  return Boolean(delivery?.date === expectedDate && delivery?.highLowTelegram === true);
+  const messageIds = delivery?.highLowTelegramMessageIds;
+  return Boolean(
+    delivery?.date === expectedDate
+      && delivery?.highLowTelegram === true
+      && Array.isArray(messageIds)
+      && messageIds.length >= 3
+      && delivery?.highLowTelegramItemCount === messageIds.length
+      && messageIds.every((messageId) => Number.isInteger(messageId) && messageId > 0),
+  );
 }
 
 async function fastPushIsRunning(env) {
