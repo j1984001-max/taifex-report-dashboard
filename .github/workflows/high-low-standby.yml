@@ -1,8 +1,8 @@
 name: TAIFEX High-Low Standby
 
 on:
-  # While Cloudflare reports a Cron Trigger incident, start early enough to
-  # survive GitHub's observed schedule delay and wait for the 15:00 release.
+  # Start early enough to survive GitHub's observed schedule delay and wait
+  # for the 15:00 release, independently of Cloudflare's public status.
   schedule:
     - cron: "47 0-6 * * 1-5"
   workflow_dispatch:

@@ -196,17 +196,17 @@ def main() -> None:
         print(json.dumps({"skipped": True, "reason": "already_delivered", "date": report_date}), flush=True)
         return
 
-    if not cloudflare_cron_is_degraded():
-        print(
-            json.dumps(
-                {"skipped": True, "reason": "cloudflare_cron_operational", "date": report_date},
-                ensure_ascii=False,
-            ),
-            flush=True,
-        )
-        return
-
-    print(json.dumps({"standbyActive": True, "date": report_date}), flush=True)
+    print(
+        json.dumps(
+            {
+                "standbyActive": True,
+                "date": report_date,
+                "cloudflareCronDegraded": cloudflare_cron_is_degraded(),
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
     run_release_watch(token, report_date, now)
 
 

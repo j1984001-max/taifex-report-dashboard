@@ -306,7 +306,7 @@ def capture_report_screenshots(
             # Higher pixel density makes small table text readable in Telegram.
             page = browser.new_page(viewport={"width": 1400, "height": 2200}, device_scale_factor=2)
 
-            for _ in range(3):
+            for attempt in range(3):
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=60_000)
                     if include_high_low:
@@ -361,7 +361,14 @@ def capture_report_screenshots(
                             if large_container.count() > 0:
                                 screenshots["d_specific"] = large_container.screenshot(type="png")
                     break
-                except Exception:
+                except Exception as exc:  # noqa: BLE001
+                    print(json.dumps({
+                        "screenshotAttemptFailed": attempt + 1,
+                        "reportDate": report_date,
+                        "includeHighLow": include_high_low,
+                        "includeDetailSections": include_detail_sections,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }, ensure_ascii=False), flush=True)
                     try:
                         page.wait_for_timeout(2000)
                         page.reload(wait_until="domcontentloaded", timeout=60_000)
@@ -783,16 +790,21 @@ def main() -> None:
 
     results = []
     if args.force_high_low_resend or delivery_state.get("highLowTelegram") is not True:
-        for message in high_low_messages:
-            results.append(send_telegram_message(token, args.chat_id, message))
-
-        # Capture and send high/low cards first. Do not wait for C/D screenshots.
         high_low_shots = capture_report_screenshots(
             report["meta"]["date"],
             report=report,
             include_high_low=True,
             include_detail_sections=False,
         )
+        primary_high_low = high_low_shots.get("high_low_cards") or high_low_shots.get("high_low")
+        if not primary_high_low:
+            raise RuntimeError("高低點圖卡截圖失敗，不寫入送達標記")
+        if not high_low_shots.get("high_low_summary"):
+            raise RuntimeError("高低點 30 日彙整表截圖失敗，不寫入送達標記")
+
+        for message in high_low_messages:
+            results.append(send_telegram_message(token, args.chat_id, message))
+
         if high_low_shots.get("high_low_cards"):
             results.append(
                 send_telegram_document(
@@ -803,7 +815,7 @@ def main() -> None:
                     data=high_low_shots["high_low_cards"],
                 )
             )
-        elif high_low_shots.get("high_low"):
+        else:
             results.append(
                 send_telegram_document(
                     token,
