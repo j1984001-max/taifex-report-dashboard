@@ -7,6 +7,8 @@
     4087
   ],
   "date": "2026/10/05",
-  "updatedAt": "2026-10-05T23:31:31+08:00",
-  "detailTelegram": true
+  "updatedAt": "2026-10-05T23:31:36+08:00",
+  "detailTelegram": true,
+  "email": true,
+  "complete": true
 }
