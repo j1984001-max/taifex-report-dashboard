@@ -28,6 +28,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install readiness dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verify TAIFEX readiness import
+        run: python3 -c "from send_daily_push import taifex_source_is_ready; assert callable(taifex_source_is_ready)"
+
       - name: Wait for TAIFEX release and dispatch fast push
         env:
           GH_TOKEN: ${{ github.token }}
