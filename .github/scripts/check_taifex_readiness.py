@@ -6,7 +6,9 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, time as datetime_time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -44,6 +46,9 @@ def main() -> None:
         with Path(output_path).open("a", encoding="utf-8") as output:
             output.write(f"ready={'true' if ready else 'false'}\n")
             output.write(f"reason={clean_reason}\n")
+
+    if not ready and datetime.now(ZoneInfo("Asia/Taipei")).time() >= datetime_time(17, 45):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
