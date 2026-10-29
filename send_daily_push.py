@@ -590,6 +590,100 @@ def report_is_ready(
             if row.get(field) is None:
                 return False, f"高低點對照 {date_text} 缺少 {field}"
 
+    if expected_date and summary_rows:
+        summary = summary_rows[0]
+        if str(summary.get("date") or "") != expected_date:
+            return False, f"高低點彙整最新日期仍為 {summary.get('date') or '缺資料'}，不是 {expected_date}"
+
+        def require_equal(label: str, actual: object, expected: object) -> tuple[bool, str] | None:
+            if actual != expected:
+                return False, f"{label} 勾稽不符：高低點 {actual}，來源表 {expected}"
+            return None
+
+        monthly_large = next(
+            (row for row in tables.get("C", {}).get("rows", []) if row.get("contractType") == "monthly"),
+            None,
+        )
+        if not monthly_large:
+            return False, "C 表缺少月契約大額交易人資料"
+        for summary_field, source_field in (
+            ("futuresBuyTop5SpecificQty", "longTop5SpecificQty"),
+            ("futuresSellTop5SpecificQty", "shortTop5SpecificQty"),
+            ("futuresBuyTop10SpecificQty", "longTop10SpecificQty"),
+            ("futuresSellTop10SpecificQty", "shortTop10SpecificQty"),
+        ):
+            mismatch = require_equal(
+                summary_field,
+                summary.get(summary_field),
+                monthly_large.get(source_field),
+            )
+            if mismatch:
+                return mismatch
+
+        foreign_future = next(
+            (
+                row for row in tables.get("B", {}).get("rows", [])
+                if row.get("product") == "臺股期貨" and row.get("institution") == "外資"
+            ),
+            None,
+        )
+        if not foreign_future:
+            return False, "B 表缺少外資臺股期貨資料"
+        for summary_field, source_field in (
+            ("foreignFuturesBuyDay", "dayChangeOiLongQty"),
+            ("foreignFuturesSellDay", "dayChangeOiShortQty"),
+            ("foreignFuturesNetDay", "dayChangeOiNetQty"),
+        ):
+            mismatch = require_equal(
+                summary_field,
+                summary.get(summary_field),
+                foreign_future.get(source_field),
+            )
+            if mismatch:
+                return mismatch
+
+        option_rows = tables.get("D", {}).get("rows", [])
+        for side, prefix in (("call", "foreignCall"), ("put", "foreignPut")):
+            foreign_option = next(
+                (
+                    row for row in option_rows
+                    if row.get("institution") == "外資" and row.get("optionSide") == side
+                ),
+                None,
+            )
+            if not foreign_option:
+                return False, f"D 表缺少外資 {side} 資料"
+            for suffix, source_field in (
+                ("BuyDay", "dayChangeOiLongQty"),
+                ("SellDay", "dayChangeOiShortQty"),
+                ("NetDay", "dayChangeOiNetQty"),
+            ):
+                summary_field = f"{prefix}{suffix}"
+                mismatch = require_equal(
+                    summary_field,
+                    summary.get(summary_field),
+                    foreign_option.get(source_field),
+                )
+                if mismatch:
+                    return mismatch
+
+        arithmetic_checks = {
+            "futuresSpecificNetDay": int(summary.get("futuresBuyTop10SpecificDay") or 0)
+            - int(summary.get("futuresSellTop10SpecificDay") or 0),
+            "callSpecificNetDay": int(summary.get("callBuyTop10SpecificDay") or 0)
+            - int(summary.get("callSellTop10SpecificDay") or 0),
+            "putSpecificNetDay": int(summary.get("putBuyTop10SpecificDay") or 0)
+            - int(summary.get("putSellTop10SpecificDay") or 0),
+            "highPointFuturesShortTotal": int(summary.get("futuresSellTop10SpecificDay") or 0)
+            + int(summary.get("foreignFuturesSellDay") or 0),
+            "lowPointFuturesLongTotal": int(summary.get("futuresBuyTop10SpecificDay") or 0)
+            + int(summary.get("foreignFuturesBuyDay") or 0),
+        }
+        for field, expected in arithmetic_checks.items():
+            mismatch = require_equal(field, summary.get(field), expected)
+            if mismatch:
+                return mismatch
+
     if mode == "full":
         charts = tables.get("E", {}).get("charts", [])
         if len(charts) < 3:
@@ -726,6 +820,7 @@ def main() -> None:
     if not args.snapshot_only:
         json_path, _ = snapshot_paths(expected_date)
         if json_path.exists():
+            existing_report = {}
             try:
                 existing_report = json.loads(json_path.read_text(encoding="utf-8"))
                 existing_ready, existing_reason = report_is_ready(
@@ -736,7 +831,9 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 existing_ready = False
                 existing_reason = f"existing_snapshot_invalid: {type(exc).__name__}: {exc}"
-            if existing_ready:
+            existing_is_fast = existing_report.get("meta", {}).get("buildMode") == "fast"
+            can_reuse_fast = args.high_low_only or args.quick_only
+            if existing_ready and (not existing_is_fast or can_reuse_fast):
                 report = existing_report
                 print(json.dumps({
                     "date": expected_date,
@@ -744,7 +841,11 @@ def main() -> None:
                     "mode": "highLowOnly" if args.high_low_only else "delivery",
                 }, ensure_ascii=False), flush=True)
             else:
-                last_reason = existing_reason
+                last_reason = (
+                    "existing_snapshot_fast_build_requires_full_refresh"
+                    if existing_ready and existing_is_fast
+                    else existing_reason
+                )
 
     if report is None:
         for index in range(attempts):
@@ -753,7 +854,12 @@ def main() -> None:
                 ready = False
             else:
                 try:
-                    report, _ = cached_report(requested_date, report_url, force_refresh=True)
+                    report, _ = cached_report(
+                        requested_date,
+                        report_url,
+                        force_refresh=True,
+                        fast_build=args.snapshot_only,
+                    )
                     # Only block send when core tables are missing. E/G delays happen after 15:00.
                     ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
                 except Exception as exc:  # noqa: BLE001
@@ -776,7 +882,7 @@ def main() -> None:
                 }, ensure_ascii=False), flush=True)
                 time.sleep(args.retry_delay)
     if report is None:
-        raise RuntimeError("無法建立報表")
+        raise RuntimeError(f"無法建立報表：{last_reason}")
     ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
     if not ready:
         raise RuntimeError(f"核心表格仍未完整：{last_reason}")

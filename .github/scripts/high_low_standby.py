@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, time as datetime_time, timedelta
 from pathlib import Path
@@ -14,6 +15,10 @@ from zoneinfo import ZoneInfo
 
 REPO = os.environ.get("GITHUB_REPOSITORY", "j1984001-max/taifex-report-dashboard")
 WORKFLOW_ID = "high-low-fast-push.yml"
+PUBLIC_DASHBOARD_URL = os.environ.get(
+    "PUBLIC_DASHBOARD_URL",
+    "https://taifex-report-dashboard.onrender.com",
+).rstrip("/")
 TAIPEI = ZoneInfo("Asia/Taipei")
 ACTIVE_RUN_STATES = {"queued", "in_progress", "waiting", "requested", "pending"}
 MIN_HIGH_LOW_TELEGRAM_ITEMS = 3
@@ -22,6 +27,7 @@ HOLIDAYS = {
     "2026/02/20", "2026/02/27", "2026/04/03", "2026/04/06", "2026/05/01",
     "2026/06/19", "2026/09/25", "2026/10/09",
 }
+LAST_DASHBOARD_WARM_AT: datetime | None = None
 
 
 def request_json(url: str, *, token: str = "", data: dict[str, object] | None = None) -> object:
@@ -112,11 +118,46 @@ def dispatch_fast_push(token: str, report_date: str, reason: str) -> None:
     print(json.dumps({"dispatched": report_date, "reason": reason}, ensure_ascii=False), flush=True)
 
 
+def maybe_warm_public_dashboard(report_date: str) -> None:
+    global LAST_DASHBOARD_WARM_AT
+    now = datetime.now(TAIPEI)
+    if now.time() < datetime_time(14, 40):
+        return
+    if LAST_DASHBOARD_WARM_AT and now - LAST_DASHBOARD_WARM_AT < timedelta(minutes=4):
+        return
+    LAST_DASHBOARD_WARM_AT = now
+    url = f"{PUBLIC_DASHBOARD_URL}/api/report?{urllib.parse.urlencode({'date': report_date})}"
+    request = urllib.request.Request(
+        url,
+        method="HEAD",
+        headers={"Cache-Control": "no-cache", "User-Agent": "taifex-dashboard-prewarm"},
+    )
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            status = response.status
+        print(
+            json.dumps(
+                {
+                    "dashboardWarm": True,
+                    "status": status,
+                    "seconds": round(time.monotonic() - started, 2),
+                    "checkedAt": now.isoformat(timespec="seconds"),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"Dashboard warm-up failed; will retry: {type(exc).__name__}: {exc}", flush=True)
+
+
 def sleep_until(target: datetime, report_date: str) -> bool:
     while True:
         now = datetime.now(TAIPEI)
         if now >= target:
             return False
+        maybe_warm_public_dashboard(report_date)
         if delivery_is_complete(report_date):
             print(json.dumps({"alreadyDelivered": report_date, "whileWaiting": True}), flush=True)
             return True
@@ -152,6 +193,7 @@ def run_release_watch(token: str, report_date: str, now: datetime) -> None:
     last_dispatch: datetime | None = None
     while True:
         now = datetime.now(TAIPEI)
+        maybe_warm_public_dashboard(report_date)
         if delivery_is_complete(report_date):
             print(json.dumps({"delivered": report_date, "observedAt": now.isoformat()}), flush=True)
             return

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import copy
 import html as html_lib
 import io
 import json
@@ -36,6 +37,10 @@ ROOT = Path(__file__).resolve().parent
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8000"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://taifex-report-dashboard.onrender.com").rstrip("/")
+RAW_SNAPSHOT_BASE_URL = os.environ.get(
+    "RAW_SNAPSHOT_BASE_URL",
+    "https://raw.githubusercontent.com/j1984001-max/taifex-report-dashboard/main/snapshots",
+).rstrip("/")
 CACHE_DIR = ROOT / ".cache"
 SNAPSHOT_DIR = ROOT / "snapshots"
 LATEST_REPORT_CACHE_TTL = int(os.environ.get("LATEST_REPORT_CACHE_TTL", "21600"))
@@ -175,6 +180,8 @@ CACHE_DIR.mkdir(exist_ok=True)
 SNAPSHOT_DIR.mkdir(exist_ok=True)
 REPORT_CACHE_LOCK = threading.Lock()
 REPORT_CACHE_MEMORY: dict[str, dict[str, Any]] = {}
+REMOTE_SNAPSHOT_CACHE_TTL = int(os.environ.get("REMOTE_SNAPSHOT_CACHE_TTL", "60"))
+REMOTE_SNAPSHOT_CACHE_MEMORY: dict[str, dict[str, Any]] = {}
 REQUEST_LOCK = threading.Lock()
 LAST_REQUEST_AT = 0.0
 REQUEST_MIN_INTERVAL_SECONDS = float(os.environ.get("REQUEST_MIN_INTERVAL_SECONDS", "1.25"))
@@ -340,6 +347,65 @@ def load_snapshot(report_date: str, report_url: str) -> tuple[dict[str, Any], by
         return None
 
 
+def load_remote_snapshot(report_date: str, report_url: str) -> tuple[dict[str, Any], bytes | None] | None:
+    """Load a just-published snapshot before Render finishes redeploying it."""
+    now = time.monotonic()
+    with REPORT_CACHE_LOCK:
+        cached = REMOTE_SNAPSHOT_CACHE_MEMORY.get(report_date)
+        if cached and now - cached["loaded_at"] <= REMOTE_SNAPSHOT_CACHE_TTL:
+            report = copy.deepcopy(cached["report"])
+            report["meta"]["reportUrl"] = report_url
+            normalize_important_dates(report)
+            return report, None
+
+    slug = report_date.replace("/", "-")
+    request = urllib.request.Request(
+        f"{RAW_SNAPSHOT_BASE_URL}/{slug}.json?cache_bust={time.time_ns()}",
+        headers={
+            **HEADERS,
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=min(10, REQUEST_TIMEOUT_SECONDS)) as response:
+            report = json.loads(response.read().decode("utf-8", "ignore"))
+    except (OSError, ValueError, urllib.error.HTTPError, urllib.error.URLError):
+        return None
+
+    tables = report.get("tables") or {}
+    summary_rows = (report.get("changeOverview") or {}).get("highLowAlignmentSummaryRows") or []
+    if (
+        report.get("meta", {}).get("date") != report_date
+        or not (tables.get("B") or {}).get("rows")
+        or not (tables.get("D") or {}).get("rows")
+        or not summary_rows
+        or summary_rows[0].get("date") != report_date
+        or not report_snapshot_is_ready(report)
+    ):
+        return None
+    with REPORT_CACHE_LOCK:
+        REMOTE_SNAPSHOT_CACHE_MEMORY[report_date] = {
+            "loaded_at": now,
+            "report": copy.deepcopy(report),
+        }
+    report["meta"]["reportUrl"] = report_url
+    normalize_important_dates(report)
+    return report, None
+
+
+def load_available_snapshot(
+    report_date: str,
+    report_url: str,
+    *,
+    allow_remote: bool = True,
+) -> tuple[dict[str, Any], bytes | None] | None:
+    snapshot = load_snapshot(report_date, report_url)
+    if snapshot or not allow_remote:
+        return snapshot
+    return load_remote_snapshot(report_date, report_url)
+
+
 def load_previous_high_low_summary_rows(report_date: str, *, limit: int = 30) -> list[dict[str, Any]]:
     report_dt = datetime.strptime(report_date, "%Y/%m/%d").date()
     for date_text in available_snapshot_dates():
@@ -358,6 +424,24 @@ def load_previous_high_low_summary_rows(report_date: str, *, limit: int = 30) ->
         if clean_rows:
             return clean_rows[:limit]
     return []
+
+
+def load_previous_important_dates(report_date: str) -> dict[str, Any] | None:
+    report_dt = datetime.strptime(report_date, "%Y/%m/%d").date()
+    for date_text in available_snapshot_dates():
+        if datetime.strptime(date_text, "%Y/%m/%d").date() >= report_dt:
+            continue
+        loaded = load_snapshot(date_text, PUBLIC_BASE_URL)
+        if not loaded:
+            continue
+        report, _ = loaded
+        important_dates = report.get("importantDates") or {}
+        if important_dates.get("rows"):
+            reused = copy.deepcopy(important_dates)
+            reused["date"] = report_date
+            normalize_important_dates({"importantDates": reused})
+            return reused
+    return None
 
 
 def merge_high_low_summary_rows(
@@ -447,9 +531,22 @@ def invalidate_cached_report(key: str) -> None:
         pdf_path.unlink()
 
 
-def cached_report(report_date: str | None, report_url: str, force_refresh: bool = False) -> tuple[dict[str, Any], str]:
+def cached_report(
+    report_date: str | None,
+    report_url: str,
+    force_refresh: bool = False,
+    *,
+    fast_build: bool = False,
+) -> tuple[dict[str, Any], str]:
     if not report_date and not force_refresh:
-        snapshot_date = latest_ready_snapshot_date(latest_business_day(), report_url) or latest_ready_snapshot_date(report_url=report_url)
+        latest_business = latest_business_day()
+        snapshot = load_available_snapshot(latest_business, report_url)
+        if snapshot:
+            report, pdf_data = snapshot
+            key = cache_key(latest_business, report_url)
+            save_cached_report(key, report, pdf_data)
+            return report, key
+        snapshot_date = latest_ready_snapshot_date(previous_business_day(latest_business), report_url)
         if snapshot_date:
             snapshot = load_snapshot(snapshot_date, report_url)
             if snapshot:
@@ -472,9 +569,10 @@ def cached_report(report_date: str | None, report_url: str, force_refresh: bool 
             fallback_reason = "requested_date_not_business_day"
 
         if fallback_ceiling:
-            fallback_date = latest_ready_snapshot_date(fallback_ceiling, report_url)
+            snapshot = load_available_snapshot(fallback_ceiling, report_url)
+            fallback_date = fallback_ceiling if snapshot else latest_ready_snapshot_date(fallback_ceiling, report_url)
             if fallback_date:
-                snapshot = load_snapshot(fallback_date, report_url)
+                snapshot = snapshot or load_snapshot(fallback_date, report_url)
                 if snapshot:
                     report, pdf_data = snapshot
                     report.setdefault("meta", {})["requestedDate"] = report_date
@@ -484,7 +582,7 @@ def cached_report(report_date: str | None, report_url: str, force_refresh: bool 
                     return report, key
 
     if report_date and not force_refresh and report_date == latest_business_day():
-        snapshot = load_snapshot(report_date, report_url)
+        snapshot = load_available_snapshot(report_date, report_url)
         if snapshot:
             report, pdf_data = snapshot
             key = cache_key(report_date, report_url)
@@ -514,7 +612,7 @@ def cached_report(report_date: str | None, report_url: str, force_refresh: bool 
         ttl = cache_ttl_for_date(candidate_date)
         should_force = force_refresh and index == 0
         if not should_force:
-            snapshot = load_snapshot(candidate_date, report_url)
+            snapshot = load_available_snapshot(candidate_date, report_url)
             if snapshot:
                 report, pdf_data = snapshot
                 save_cached_report(key, report, pdf_data)
@@ -527,7 +625,7 @@ def cached_report(report_date: str | None, report_url: str, force_refresh: bool 
                 report, _ = cached
                 return report, key
         try:
-            report = build_report(candidate_date, report_url)
+            report = build_report(candidate_date, report_url, fast_build=fast_build)
             save_cached_report(key, report)
             save_snapshot(candidate_date, report)
             return report, key
@@ -1320,13 +1418,7 @@ def fetch_futures_history_rows(report_date: str, count: int = 5) -> list[dict[st
     while len(history) < count and checked < 20:
         date_text = current.strftime("%Y/%m/%d")
         try:
-            html = request_html(
-                TAIFEX,
-                "/cht/3/futContractsDateExcel",
-                {"queryType": "1", "queryDate": date_text, "commodityId": ""},
-            )
-            table = find_table(parse_tables(html), "臺股期貨")
-            rows = parse_futures_contracts(table)
+            rows = fetch_futures_rows_for_date(date_text)
             if rows:
                 history.append({"date": date_text, "rows": rows})
         except Exception:
@@ -1633,13 +1725,7 @@ def fetch_option_history_rows(report_date: str, count: int = 5) -> list[dict[str
     while len(history) < count and checked < 20:
         date_text = current.strftime("%Y/%m/%d")
         try:
-            html = request_html(
-                TAIFEX,
-                "/cht/3/callsAndPutsDate",
-                {"queryType": "1", "queryDate": date_text, "commodityId": "TXO"},
-            )
-            table = find_table(parse_tables(html), "商品 名稱")
-            rows = parse_option_contracts(table)
+            rows = fetch_option_rows_for_date(date_text)
             if rows:
                 history.append({"date": date_text, "rows": rows})
         except Exception:
@@ -1649,21 +1735,26 @@ def fetch_option_history_rows(report_date: str, count: int = 5) -> list[dict[str
     return history
 
 
+@lru_cache(maxsize=512)
+def _fetch_tx_reference_for_date(report_date: str) -> dict[str, Any]:
+    html = request_html(
+        TAIFEX,
+        "/cht/3/futDailyMarketExcel",
+        {
+            "queryType": "2",
+            "marketCode": "0",
+            "commodity_id": "TX",
+            "commodity_id2": "",
+            "queryDate": report_date,
+        },
+    )
+    table = find_table(parse_tables(html), "契約")
+    return parse_tx_reference(table)
+
+
 def fetch_tx_reference_for_date(report_date: str) -> dict[str, Any] | None:
     try:
-        html = request_html(
-            TAIFEX,
-            "/cht/3/futDailyMarketExcel",
-            {
-                "queryType": "2",
-                "marketCode": "0",
-                "commodity_id": "TX",
-                "commodity_id2": "",
-                "queryDate": report_date,
-            },
-        )
-        table = find_table(parse_tables(html), "契約")
-        return parse_tx_reference(table)
+        return _fetch_tx_reference_for_date(report_date)
     except Exception:
         return None
 
@@ -1708,18 +1799,22 @@ def fetch_monthly_option_atm_range_for_date(report_date: str) -> dict[str, Any] 
         return None
 
 
+@lru_cache(maxsize=36)
+def _fetch_taiex_month_history(month_key: str) -> dict[str, Any]:
+    return json.loads(
+        request_bytes(
+            "https://www.twse.com.tw",
+            "/rwd/zh/TAIEX/MI_5MINS_HIST",
+            {"response": "json", "date": f"{month_key}01"},
+        ).decode("utf-8", "ignore")
+    )
+
+
 def fetch_taiex_high_low_for_date(report_date: str) -> dict[str, Any] | None:
     try:
         date_obj = datetime.strptime(report_date, "%Y/%m/%d")
-        month_query = date_obj.strftime("%Y%m%d")
         target = f"{date_obj.year - 1911}/{date_obj.month:02d}/{date_obj.day:02d}"
-        payload = json.loads(
-            request_bytes(
-                "https://www.twse.com.tw",
-                "/rwd/zh/TAIEX/MI_5MINS_HIST",
-                {"response": "json", "date": month_query},
-            ).decode("utf-8", "ignore")
-        )
+        payload = _fetch_taiex_month_history(date_obj.strftime("%Y%m"))
         for row in payload.get("data", []):
             if row and row[0] == target:
                 return {
@@ -2861,6 +2956,7 @@ def build_institution_option_history_rows(
     return rows
 
 
+@lru_cache(maxsize=512)
 def fetch_option_rows_for_date(report_date: str) -> list[dict[str, Any]]:
     try:
         html = request_html(
@@ -4553,29 +4649,18 @@ def build_report_pdf(report: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
-def build_report(report_date: str | None = None, report_url: str | None = None) -> dict[str, Any]:
+def build_report(
+    report_date: str | None = None,
+    report_url: str | None = None,
+    *,
+    fast_build: bool = False,
+) -> dict[str, Any]:
     report_date = report_date or latest_business_day()
-    futures_html = request_html(
-        TAIFEX,
-        "/cht/3/futContractsDateExcel",
-        {"queryType": "1", "queryDate": report_date, "commodityId": ""} if report_date else None,
-    )
-    options_html = request_html(
-        TAIFEX,
-        "/cht/3/callsAndPutsDate",
-        {"queryType": "1", "queryDate": report_date, "commodityId": "TXO"} if report_date else None,
-    )
-    tx_daily_html = request_html(
-        TAIFEX,
-        "/cht/3/futDailyMarketExcel",
-        {
-            "queryType": "2",
-            "marketCode": "0",
-            "commodity_id": "TX",
-            "commodity_id2": "",
-            "queryDate": report_date,
-        } if report_date else None,
-    )
+    futures_contracts = fetch_futures_rows_for_date(report_date)
+    option_contracts = fetch_option_rows_for_date(report_date)
+    tx_reference = fetch_tx_reference_for_date(report_date)
+    if not futures_contracts or not option_contracts or not tx_reference:
+        raise ValueError("期交所核心表格尚未完整")
     current_option_market_html = request_html(
         TAIFEX,
         "/cht/3/optDailyMarketExcel",
@@ -4593,23 +4678,12 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         {"queryDate": report_date} if report_date else None,
     )
 
-    futures_table = find_table(parse_tables(futures_html), "臺股期貨")
-    options_table = find_table(parse_tables(options_html), "商品 名稱")
-    tx_daily_table = find_table(parse_tables(tx_daily_html), "契約")
     oi_change_table = find_table(parse_tables(oi_change_html), "前一日")
-    effective_date = report_date or extract_page_date(futures_html)
-
-    futures_contracts = parse_futures_contracts(futures_table)
-    option_contracts = parse_option_contracts(options_table)
+    effective_date = report_date
     total_summary = build_total_summary(futures_contracts, option_contracts)
-    tx_reference = parse_tx_reference(tx_daily_table)
 
     # Keep table history short for main tables, but fetch longer history for the high/low summary block.
     tx_settlement_history = build_tx_settlement_history(effective_date, count=3)
-    large_trader_fut_history_rows = build_large_trader_fut_history_rows(effective_date, tx_reference["contract"], count=4)
-    large_trader_opt_history_rows = build_large_trader_opt_history_rows(effective_date, tx_reference["contract"], count=4)
-    institution_option_history_rows = build_institution_option_history_rows(effective_date, count=4)
-    foreign_futures_history_rows = build_foreign_futures_history_rows(effective_date, count=4)
     high_low_history_count = 5
     high_low_large_trader_fut_history_rows = build_large_trader_fut_history_rows(
         effective_date,
@@ -4629,6 +4703,22 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         effective_date,
         count=high_low_history_count,
     )
+
+    def recent_history_dates(rows: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
+        dates: list[str] = []
+        for row in rows:
+            date_text = str(row.get("date") or "")
+            if date_text and date_text not in dates:
+                dates.append(date_text)
+            if len(dates) == count:
+                break
+        allowed = set(dates)
+        return [row for row in rows if row.get("date") in allowed]
+
+    large_trader_fut_history_rows = recent_history_dates(high_low_large_trader_fut_history_rows, 4)
+    large_trader_opt_history_rows = recent_history_dates(high_low_large_trader_opt_history_rows, 4)
+    institution_option_history_rows = recent_history_dates(high_low_institution_option_history_rows, 4)
+    foreign_futures_history_rows = recent_history_dates(high_low_foreign_futures_history_rows, 4)
 
     large_trader_rows = fetch_large_trader_for_date(effective_date, tx_reference["contract"])
     if not large_trader_rows:
@@ -4730,7 +4820,9 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     pc_ratio_method = "official"
     if not pc_ratio:
         pc_ratio, pc_ratio_method = fetch_pc_ratio_fallback(base_date)
-    important_dates = build_important_dates(base_date)
+    important_dates = load_previous_important_dates(base_date) if fast_build else None
+    if important_dates is None:
+        important_dates = build_important_dates(base_date)
     recent_futures_spot_ranges = build_recent_futures_spot_range_rows(base_date, count=5)
     previous_high_low_summary_rows = load_previous_high_low_summary_rows(base_date, limit=30)
     recent_futures_spot_ranges_30 = merge_high_low_summary_rows(
@@ -4794,6 +4886,7 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
         "meta": {
             "date": base_date,
             "generatedAt": datetime.now().isoformat(timespec="seconds"),
+            "buildMode": "fast" if fast_build else "full",
             "reportUrl": report_url or PUBLIC_BASE_URL,
             "txSettlementHistory": tx_settlement_history,
         },
@@ -5217,13 +5310,20 @@ def build_report(report_date: str | None = None, report_url: str | None = None) 
     return report
 
 
+def report_cache_control(report: dict[str, Any]) -> str:
+    meta = report.get("meta") or {}
+    if meta.get("fallbackReason") or meta.get("date") == latest_business_day():
+        return "no-store"
+    return "public, max-age=86400, stale-while-revalidate=604800"
+
+
 class Handler(SimpleHTTPRequestHandler):
     def do_HEAD(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/report":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "public, max-age=900, stale-while-revalidate=3600")
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             return
         if parsed.path == "/api/report.pdf":
@@ -5264,7 +5364,7 @@ class Handler(SimpleHTTPRequestHandler):
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "public, max-age=900, stale-while-revalidate=3600")
+            self.send_header("Cache-Control", report_cache_control(payload))
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

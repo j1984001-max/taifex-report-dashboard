@@ -602,6 +602,17 @@
             return datePicker.value || "";
         }
 
+        function currentTaipeiDate() {
+            const parts = new Intl.DateTimeFormat("en-US", {
+                timeZone: "Asia/Taipei",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+            }).formatToParts(new Date());
+            const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+            return `${values.year}-${values.month}-${values.day}`;
+        }
+
         function shiftDate(days) {
             const base = currentSelectedDate() || new Date().toISOString().slice(0, 10);
             const dt = new Date(`${base}T00:00:00`);
@@ -640,7 +651,7 @@
                 let response;
                 try {
                     response = await fetch(`/api/report${query}`, {
-                        cache: query.includes("refresh=1") ? "no-store" : "default",
+                        cache: !date || date === currentTaipeiDate() ? "no-store" : "default",
                         signal: controller.signal,
                     });
                 } finally {

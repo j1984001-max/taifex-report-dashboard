@@ -109,14 +109,23 @@ jobs:
         if: steps.delivery.outputs.done != 'true'
         run: pip install -r requirements.txt
 
-      - name: Configure git author
+      - name: Check whether TAIFEX source tables are complete
+        id: source
         if: steps.delivery.outputs.done != 'true'
+        env:
+          REQUEST_MIN_INTERVAL_SECONDS: "0.35"
+          REQUEST_TIMEOUT_SECONDS: "25"
+          REQUEST_MAX_RETRIES: "0"
+        run: python3 .github/scripts/check_taifex_readiness.py --date "${{ steps.delivery.outputs.date }}"
+
+      - name: Configure git author
+        if: steps.delivery.outputs.done != 'true' && steps.source.outputs.ready == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Publish latest snapshot first
-        if: steps.delivery.outputs.done != 'true'
+        if: steps.delivery.outputs.done != 'true' && steps.source.outputs.ready == 'true'
         env:
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
           REPORT_MAX_RETRIES: "0"
@@ -133,20 +142,20 @@ jobs:
           python3 send_daily_push.py "${date_args[@]}" --snapshot-only --max-retries 0 --retry-delay 0 2>&1 | tee high-low-snapshot-result.json
 
       - name: Cache Playwright browsers
-        if: steps.delivery.outputs.done != 'true'
+        if: steps.delivery.outputs.done != 'true' && steps.source.outputs.ready == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-1.59.0-${{ runner.os }}
 
       - name: Install screenshot dependencies
-        if: steps.delivery.outputs.done != 'true'
+        if: steps.delivery.outputs.done != 'true' && steps.source.outputs.ready == 'true'
         run: |
           pip install playwright==1.59.0
           python3 -m playwright install --with-deps chromium
 
       - name: Send high-low screenshots
-        if: steps.delivery.outputs.done != 'true'
+        if: steps.delivery.outputs.done != 'true' && steps.source.outputs.ready == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -166,7 +175,7 @@ jobs:
           python3 send_daily_push.py "${date_args[@]}" --high-low-only --max-retries 0 --retry-delay 20 2>&1 | tee high-low-push-result.json
 
       - name: Verify high-low delivery
-        if: success() && steps.delivery.outputs.done != 'true'
+        if: success() && steps.delivery.outputs.done != 'true' && steps.source.outputs.ready == 'true'
         env:
           TARGET_REPORT_DATE: ${{ inputs.report_date }}
         run: |
