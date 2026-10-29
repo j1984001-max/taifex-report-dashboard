@@ -828,7 +828,11 @@ def main() -> None:
                 "nowTaipei": now_tw.isoformat(timespec="seconds"),
             }, ensure_ascii=False))
             return
-    if not requested_date and os.environ.get("SKIP_EXISTING_DAILY_PUSH", "1") == "1":
+    if (
+        not args.snapshot_only
+        and not args.force_high_low_resend
+        and os.environ.get("SKIP_EXISTING_DAILY_PUSH", "1") == "1"
+    ):
         json_path, _ = snapshot_paths(expected_date)
         if json_path.exists():
             delivery_state = load_delivery_state(expected_date)

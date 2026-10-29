@@ -30,20 +30,32 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
-      - name: Install dependencies
+      - name: Install report dependencies
+        run: pip install -r requirements.txt
+
+      - name: Resolve the released report date once
+        id: target
+        run: python3 .github/scripts/daily_push_workflow.py target
+
+      - name: Install screenshot dependencies
+        if: steps.target.outputs.complete != 'true'
         run: |
-          pip install -r requirements.txt
           pip install playwright==1.59.0
           python3 -m playwright install --with-deps chromium
 
       - name: Configure git author
+        if: steps.target.outputs.complete != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run daily push
+        id: push
+        if: steps.target.outputs.complete != 'true'
         env:
+          TARGET_REPORT_DATE: ${{ steps.target.outputs.date }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
@@ -57,79 +69,26 @@ jobs:
           REQUEST_MAX_RETRIES: "1"
         run: |
           set -o pipefail
-          python3 send_daily_push.py 2>&1 | tee daily-push-result.json
+          python3 send_daily_push.py --date "$TARGET_REPORT_DATE" 2>&1 | tee daily-push-result.json
 
       - name: Verify published snapshot
+        id: verify
         if: success()
         env:
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
+          TARGET_REPORT_DATE: ${{ steps.target.outputs.date }}
         run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          from datetime import datetime, timedelta
-          from zoneinfo import ZoneInfo
-
-          holidays = {
-              "2026/01/01", "2026/02/16", "2026/02/17", "2026/02/18", "2026/02/19",
-              "2026/02/20", "2026/02/27", "2026/04/03", "2026/04/06", "2026/05/01",
-              "2026/06/19", "2026/09/25", "2026/10/09",
-          }
-
-          current = datetime.now(ZoneInfo("Asia/Taipei"))
-          while current.weekday() >= 5 or current.strftime("%Y/%m/%d") in holidays:
-              current -= timedelta(days=1)
-          expected = current.strftime("%Y/%m/%d")
-
-          raw_url = (
-              "https://raw.githubusercontent.com/"
-              f"{os.environ['GITHUB_REPOSITORY']}/main/snapshots/{expected.replace('/', '-')}.json"
-          )
-          api_url = f"{os.environ['PUBLIC_BASE_URL']}/api/report?date={expected}"
-
-          def fetch_json(url: str) -> dict:
-              req = urllib.request.Request(
-                  url,
-                  headers={"Cache-Control": "no-cache", "Pragma": "no-cache", "User-Agent": "Mozilla/5.0"},
-              )
-              with urllib.request.urlopen(req, timeout=45) as resp:
-                  return json.loads(resp.read().decode("utf-8", "ignore"))
-
-          raw = fetch_json(raw_url)
-          raw_meta = raw.get("meta", {})
-          if raw_meta.get("date") != expected:
-              raise SystemExit(f"raw snapshot date mismatch: expected {expected}, got {raw_meta.get('date')}")
-
-          rows = (raw.get("changeOverview") or {}).get("highLowAlignmentSummaryRows") or []
-          required = [
-              "futuresBuyTop5SpecificCycle",
-              "futuresSellTop5SpecificCycle",
-              "futuresBuyTop10SpecificCycle",
-              "futuresSellTop10SpecificCycle",
-              "foreignFuturesBuyCycle",
-              "foreignFuturesSellCycle",
-          ]
-          for row in rows[:5]:
-              for field in required:
-                  if row.get(field) is None:
-                      raise SystemExit(f"raw snapshot {row.get('date')} missing {field}")
-
-          try:
-              api = fetch_json(api_url)
-          except Exception as exc:  # noqa: BLE001
-              print(f"site_verify_warning: {type(exc).__name__}: {exc}")
-          else:
-              api_meta = api.get("meta", {})
-              if api_meta.get("date") != expected:
-                  print(f"site_verify_warning: expected {expected}, got {api_meta.get('date')}")
-          print(json.dumps({"verifiedSnapshot": expected, "rawGeneratedAt": raw_meta.get("generatedAt")}, ensure_ascii=False))
-          PY
+          set -o pipefail
+          python3 .github/scripts/daily_push_workflow.py verify --date "$TARGET_REPORT_DATE" 2>&1 | tee daily-push-verify-result.json
 
       - name: Upload daily push result
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: daily-push-result
-          path: daily-push-result.json
+          path: |
+            daily-push-result.json
+            daily-push-verify-result.json
           if-no-files-found: warn
 
       - name: Alert Telegram on failure
@@ -138,13 +97,17 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TARGET_REPORT_DATE: ${{ steps.target.outputs.date }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
         run: |
           python3 - <<'PY'
           import os, urllib.parse, urllib.request
           token = os.environ["TELEGRAM_BOT_TOKEN"]
           chat_id = os.environ["TELEGRAM_CHAT_ID"]
           run_url = os.environ["RUN_URL"]
-          text = f"TAIFEX Daily Push 失敗\\n請檢查 GitHub Actions：{run_url}"
+          target = os.environ.get("TARGET_REPORT_DATE", "")
+          failure = "發布資料驗證失敗" if os.environ.get("VERIFY_OUTCOME") == "failure" else "補送排程失敗"
+          text = f"TAIFEX Daily Push {target} {failure}\n請檢查 GitHub Actions：{run_url}"
           data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
           req = urllib.request.Request(
               f"https://api.telegram.org/bot{token}/sendMessage",
