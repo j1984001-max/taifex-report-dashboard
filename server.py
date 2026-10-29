@@ -189,6 +189,8 @@ REQUEST_MIN_INTERVAL_SECONDS = float(os.environ.get("REQUEST_MIN_INTERVAL_SECOND
 REQUEST_MAX_RETRIES = int(os.environ.get("REQUEST_MAX_RETRIES", "4"))
 REQUEST_RETRY_BASE_SECONDS = float(os.environ.get("REQUEST_RETRY_BASE_SECONDS", "30"))
 REPORT_FETCH_CONTEXT: ContextVar[dict | None] = ContextVar("report_fetch_context", default=None)
+REPORT_BUILD_DATE_CONTEXT: ContextVar[str | None] = ContextVar("report_build_date", default=None)
+REPORT_FAST_BUILD_CONTEXT: ContextVar[bool] = ContextVar("report_fast_build", default=False)
 
 
 def cache_report_fetch(fetch):
@@ -208,9 +210,14 @@ def isolated_report_fetches(build):
     @wraps(build)
     def isolated(*args, **kwargs):
         token = REPORT_FETCH_CONTEXT.set({})
+        report_date = kwargs.get("report_date") or (args[0] if args else None) or latest_business_day()
+        date_token = REPORT_BUILD_DATE_CONTEXT.set(report_date)
+        fast_token = REPORT_FAST_BUILD_CONTEXT.set(bool(kwargs.get("fast_build", False)))
         try:
             return build(*args, **kwargs)
         finally:
+            REPORT_FAST_BUILD_CONTEXT.reset(fast_token)
+            REPORT_BUILD_DATE_CONTEXT.reset(date_token)
             REPORT_FETCH_CONTEXT.reset(token)
     return isolated
 
@@ -479,6 +486,36 @@ def load_previous_important_dates(report_date: str) -> dict[str, Any] | None:
             normalize_important_dates({"importantDates": reused})
             return reused
     return None
+
+
+def load_historical_table_rows(report_date: str, table_key: str) -> list[dict[str, Any]] | None:
+    build_date = REPORT_BUILD_DATE_CONTEXT.get()
+    if not REPORT_FAST_BUILD_CONTEXT.get() or not build_date or report_date >= build_date:
+        return None
+    loaded = load_snapshot(report_date, PUBLIC_BASE_URL)
+    if not loaded:
+        return None
+    report, _ = loaded
+    table = (report.get("tables") or {}).get(table_key) or {}
+    rows = table.get("rows") or []
+    if report.get("meta", {}).get("date") != report_date or table.get("date") != report_date or not rows:
+        return None
+    for row in rows:
+        if not isinstance(row, dict) or any(
+            type(row.get(field)) is not int for field in ("oiLongQty", "oiShortQty", "oiNetQty")
+        ):
+            return None
+        if row["oiLongQty"] - row["oiShortQty"] != row["oiNetQty"]:
+            return None
+    if table_key == "B":
+        institutions = {row.get("institution") for row in rows if row.get("product") == "臺股期貨"}
+        if not {"外資", "投信", "自營商"}.issubset(institutions):
+            return None
+    if table_key == "D":
+        identities = {(row.get("institution"), row.get("optionSide")) for row in rows}
+        if not all((institution, side) in identities for institution in ("外資", "投信", "自營商") for side in ("call", "put")):
+            return None
+    return rows
 
 
 def merge_high_low_summary_rows(
@@ -1477,12 +1514,17 @@ def fetch_futures_history_rows(report_date: str, count: int = 5) -> list[dict[st
 
 @cache_report_fetch
 def fetch_futures_rows_for_date(report_date: str) -> list[dict[str, Any]]:
+    historical_rows = load_historical_table_rows(report_date, "B")
+    if historical_rows:
+        return historical_rows
     try:
         html = request_html(
             TAIFEX,
             "/cht/3/futContractsDateExcel",
             {"queryType": "1", "queryDate": report_date, "commodityId": ""},
         )
+        if report_date not in html:
+            raise ValueError(f"期貨法人資料尚未發布 {report_date}")
         table = find_table(parse_tables(html), "臺股期貨")
         return parse_futures_contracts(table)
     except Exception:
@@ -1795,6 +1837,8 @@ def _fetch_tx_reference_for_date(report_date: str) -> dict[str, Any]:
             "queryDate": report_date,
         },
     )
+    if report_date not in html:
+        raise ValueError(f"TX 日行情尚未發布 {report_date}")
     table = find_table(parse_tables(html), "契約")
     return parse_tx_reference(table)
 
@@ -2115,6 +2159,12 @@ def sum_complete_values(values: list[int | None]) -> int | None:
     return sum(int(value or 0) for value in values)
 
 
+def difference_complete_values(left: int | None, right: int | None) -> int | None:
+    if left is None or right is None:
+        return None
+    return int(left) - int(right)
+
+
 def add_optional_int(entry: dict[str, Any], key: str, value: Any) -> None:
     if value is None:
         if key not in entry:
@@ -2188,10 +2238,10 @@ def build_high_low_specific_alignment_rows(
         entry = foreign_opt_map.setdefault(
             row["date"],
             {
-                "foreignCallBuyDay": 0,
-                "foreignCallSellDay": 0,
-                "foreignPutBuyDay": 0,
-                "foreignPutSellDay": 0,
+                "foreignCallBuyDay": None,
+                "foreignCallSellDay": None,
+                "foreignPutBuyDay": None,
+                "foreignPutSellDay": None,
                 "foreignCallBuyQty": 0,
                 "foreignCallSellQty": 0,
                 "foreignPutBuyQty": 0,
@@ -2199,13 +2249,13 @@ def build_high_low_specific_alignment_rows(
             },
         )
         if option_side == "call":
-            entry["foreignCallBuyDay"] += int(row.get("oiLongQtyDay") or 0)
-            entry["foreignCallSellDay"] += int(row.get("oiShortQtyDay") or 0)
+            add_optional_int(entry, "foreignCallBuyDay", row.get("oiLongQtyDay"))
+            add_optional_int(entry, "foreignCallSellDay", row.get("oiShortQtyDay"))
             entry["foreignCallBuyQty"] += int(row.get("oiLongQty") or 0)
             entry["foreignCallSellQty"] += int(row.get("oiShortQty") or 0)
         elif option_side == "put":
-            entry["foreignPutBuyDay"] += int(row.get("oiLongQtyDay") or 0)
-            entry["foreignPutSellDay"] += int(row.get("oiShortQtyDay") or 0)
+            add_optional_int(entry, "foreignPutBuyDay", row.get("oiLongQtyDay"))
+            add_optional_int(entry, "foreignPutSellDay", row.get("oiShortQtyDay"))
             entry["foreignPutBuyQty"] += int(row.get("oiLongQty") or 0)
             entry["foreignPutSellQty"] += int(row.get("oiShortQty") or 0)
 
@@ -2300,10 +2350,10 @@ def build_high_low_specific_alignment_rows(
                     if fut.get("longTop10SpecificDay") is None or fut.get("shortTop10SpecificDay") is None
                     else int(fut.get("longTop10SpecificDay") or 0) - int(fut.get("shortTop10SpecificDay") or 0)
                 ),
-                "callSpecificNetDay": int(opt.get("callBuyTop10SpecificDay") or 0) - int(opt.get("callSellTop10SpecificDay") or 0),
-                "putSpecificNetDay": int(opt.get("putBuyTop10SpecificDay") or 0) - int(opt.get("putSellTop10SpecificDay") or 0),
-                "foreignCallNetDay": int(foreign_opt.get("foreignCallBuyDay") or 0) - int(foreign_opt.get("foreignCallSellDay") or 0),
-                "foreignPutNetDay": int(foreign_opt.get("foreignPutBuyDay") or 0) - int(foreign_opt.get("foreignPutSellDay") or 0),
+                "callSpecificNetDay": difference_complete_values(opt.get("callBuyTop10SpecificDay"), opt.get("callSellTop10SpecificDay")),
+                "putSpecificNetDay": difference_complete_values(opt.get("putBuyTop10SpecificDay"), opt.get("putSellTop10SpecificDay")),
+                "foreignCallNetDay": difference_complete_values(foreign_opt.get("foreignCallBuyDay"), foreign_opt.get("foreignCallSellDay")),
+                "foreignPutNetDay": difference_complete_values(foreign_opt.get("foreignPutBuyDay"), foreign_opt.get("foreignPutSellDay")),
                 "foreignFuturesNetDay": (
                     None
                     if foreign_fut.get("foreignFuturesBuyDay") is None or foreign_fut.get("foreignFuturesSellDay") is None
@@ -2415,10 +2465,10 @@ def normalize_high_low_alignment_rows(
         entry = foreign_opt_map.setdefault(
             row["date"],
             {
-                "foreignCallBuyDay": 0,
-                "foreignCallSellDay": 0,
-                "foreignPutBuyDay": 0,
-                "foreignPutSellDay": 0,
+                "foreignCallBuyDay": None,
+                "foreignCallSellDay": None,
+                "foreignPutBuyDay": None,
+                "foreignPutSellDay": None,
                 "foreignCallBuyQty": 0,
                 "foreignCallSellQty": 0,
                 "foreignPutBuyQty": 0,
@@ -2426,13 +2476,13 @@ def normalize_high_low_alignment_rows(
             },
         )
         if option_side == "call":
-            entry["foreignCallBuyDay"] += int(row.get("oiLongQtyDay") or 0)
-            entry["foreignCallSellDay"] += int(row.get("oiShortQtyDay") or 0)
+            add_optional_int(entry, "foreignCallBuyDay", row.get("oiLongQtyDay"))
+            add_optional_int(entry, "foreignCallSellDay", row.get("oiShortQtyDay"))
             entry["foreignCallBuyQty"] += int(row.get("oiLongQty") or 0)
             entry["foreignCallSellQty"] += int(row.get("oiShortQty") or 0)
         elif option_side == "put":
-            entry["foreignPutBuyDay"] += int(row.get("oiLongQtyDay") or 0)
-            entry["foreignPutSellDay"] += int(row.get("oiShortQtyDay") or 0)
+            add_optional_int(entry, "foreignPutBuyDay", row.get("oiLongQtyDay"))
+            add_optional_int(entry, "foreignPutSellDay", row.get("oiShortQtyDay"))
             entry["foreignPutBuyQty"] += int(row.get("oiLongQty") or 0)
             entry["foreignPutSellQty"] += int(row.get("oiShortQty") or 0)
 
@@ -2517,10 +2567,10 @@ def normalize_high_low_alignment_rows(
                 "foreignFuturesSellCycle": (
                     None if not foreign_fut_cycle_totals else foreign_fut_cycle_totals.get("foreignFuturesSellCycleSum")
                 ),
-                "foreignCallBuyDay": foreign_opt.get("foreignCallBuyDay", 0),
-                "foreignCallSellDay": foreign_opt.get("foreignCallSellDay", 0),
-                "foreignPutBuyDay": foreign_opt.get("foreignPutBuyDay", 0),
-                "foreignPutSellDay": foreign_opt.get("foreignPutSellDay", 0),
+                "foreignCallBuyDay": foreign_opt.get("foreignCallBuyDay"),
+                "foreignCallSellDay": foreign_opt.get("foreignCallSellDay"),
+                "foreignPutBuyDay": foreign_opt.get("foreignPutBuyDay"),
+                "foreignPutSellDay": foreign_opt.get("foreignPutSellDay"),
                 "highPointFuturesShortTotal": short_total,
                 "lowPointFuturesLongTotal": long_total,
                 "highPointFuturesShortLabel": classify_pressure_strength(short_total, side="short"),
@@ -2961,9 +3011,9 @@ def build_institution_option_history_rows(
     *,
     count: int,
 ) -> list[dict[str, Any]]:
-    series = fetch_business_day_series(end_date, count=count, fetch_fn=fetch_option_rows_for_date)
+    series = fetch_business_day_series(end_date, count=count + 1, fetch_fn=fetch_option_rows_for_date)
     rows: list[dict[str, Any]] = []
-    for idx, item in enumerate(series):
+    for idx, item in enumerate(series[:count]):
         date_text = item["date"]
         day_rows: list[dict[str, Any]] = item["value"]
         prev_rows: list[dict[str, Any]] | None = series[idx + 1]["value"] if idx + 1 < len(series) else None
@@ -3005,12 +3055,17 @@ def build_institution_option_history_rows(
 
 @cache_report_fetch
 def fetch_option_rows_for_date(report_date: str) -> list[dict[str, Any]]:
+    historical_rows = load_historical_table_rows(report_date, "D")
+    if historical_rows:
+        return historical_rows
     try:
         html = request_html(
             TAIFEX,
             "/cht/3/callsAndPutsDate",
             {"queryType": "1", "queryDate": report_date, "commodityId": "TXO"},
         )
+        if report_date not in html:
+            raise ValueError(f"選擇權法人資料尚未發布 {report_date}")
         table = find_table(parse_tables(html), "商品 名稱")
         return parse_option_contracts(table)
     except Exception:

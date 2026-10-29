@@ -89,6 +89,24 @@ class ServerDeliveryPathTest(unittest.TestCase):
         self.assertEqual(build(), {"ready": True})
         self.assertEqual(fetch.call_count, 2)
 
+    def test_historical_snapshot_reuse_excludes_current_and_invalid_data(self) -> None:
+        rows = [
+            {"product": "臺股期貨", "institution": institution, "oiLongQty": 10, "oiShortQty": 5, "oiNetQty": 5}
+            for institution in ("外資", "投信", "自營商")
+        ]
+        report = {"meta": {"date": "2026/10/28"}, "tables": {"B": {"date": "2026/10/28", "rows": rows}}}
+
+        @server.isolated_report_fetches
+        def build(report_date, *, fast_build):
+            self.assertIsNone(server.load_historical_table_rows(report_date, "B"))
+            return server.load_historical_table_rows("2026/10/28", "B")
+
+        with mock.patch("server.load_snapshot", return_value=(report, None)) as load:
+            self.assertEqual(build("2026/10/29", fast_build=True), rows)
+            load.assert_called_once_with("2026/10/28", server.PUBLIC_BASE_URL)
+            rows[0]["oiNetQty"] = 999
+            self.assertIsNone(build("2026/10/29", fast_build=True))
+
 
 if __name__ == "__main__":
     unittest.main()

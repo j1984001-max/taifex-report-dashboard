@@ -152,6 +152,14 @@ def maybe_warm_public_dashboard(report_date: str) -> None:
         print(f"Dashboard warm-up failed; will retry: {type(exc).__name__}: {exc}", flush=True)
 
 
+def keep_dashboard_warm_until(target: datetime, report_date: str) -> None:
+    while datetime.now(TAIPEI) < target:
+        maybe_warm_public_dashboard(report_date)
+        remaining = (target - datetime.now(TAIPEI)).total_seconds()
+        if remaining > 0:
+            time.sleep(min(240, remaining))
+
+
 def sleep_until(target: datetime, report_date: str) -> bool:
     while True:
         now = datetime.now(TAIPEI)
@@ -196,6 +204,7 @@ def run_release_watch(token: str, report_date: str, now: datetime) -> None:
         maybe_warm_public_dashboard(report_date)
         if delivery_is_complete(report_date):
             print(json.dumps({"delivered": report_date, "observedAt": now.isoformat()}), flush=True)
+            keep_dashboard_warm_until(deadline, report_date)
             return
 
         ready, reason = source_is_ready(report_date)
@@ -243,6 +252,9 @@ def main() -> None:
 
     if delivery_is_complete(report_date):
         print(json.dumps({"skipped": True, "reason": "already_delivered", "date": report_date}), flush=True)
+        if datetime_time(14, 40) <= now.time() < datetime_time(16, 31):
+            deadline = datetime.combine(now.date(), datetime_time(16, 31), tzinfo=TAIPEI)
+            keep_dashboard_warm_until(deadline, report_date)
         return
 
     print(
