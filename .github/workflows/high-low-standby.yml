@@ -44,7 +44,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REQUEST_MIN_INTERVAL_SECONDS: "0.35"
-          REQUEST_TIMEOUT_SECONDS: "25"
-          REQUEST_MAX_RETRIES: "0"
+          REQUEST_TIMEOUT_SECONDS: "15"
+          REQUEST_MAX_RETRIES: "1"
+          REQUEST_RETRY_BASE_SECONDS: "2"
           STANDBY_SMOKE_TEST: ${{ github.event_name == 'push' && '1' || '0' }}
         run: python3 -u .github/scripts/high_low_standby.py

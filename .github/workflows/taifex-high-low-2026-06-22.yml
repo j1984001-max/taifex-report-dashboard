@@ -1,11 +1,6 @@
 name: TAIFEX High-Low 2026-06-22
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/taifex-high-low-2026-06-22.yml"
   workflow_dispatch:
 
 concurrency:

@@ -1,0 +1,67 @@
+name: Verify TAIFEX High-Low
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server.py"
+      - "send_daily_push.py"
+      - "index.html"
+      - "tests/**"
+      - ".github/scripts/**"
+      - ".github/workflows/high-low-*.yml"
+      - ".github/workflows/verify-high-low.yml"
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Fetch current official data and render both screenshots without sending."
+        type: boolean
+        default: false
+      report_date:
+        description: "Optional report date in YYYY/MM/DD."
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install report dependencies
+        run: pip install -r requirements.txt
+      - name: Verify reference values and delivery safeguards
+        run: python3 -m unittest discover -s tests -v
+      - name: Cache Playwright browsers
+        if: inputs.live == true
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.59.0-${{ runner.os }}
+      - name: Install screenshot dependencies
+        if: inputs.live == true
+        run: |
+          pip install playwright==1.59.0
+          python3 -m playwright install --with-deps chromium
+      - name: Verify official current data and both screenshots
+        if: inputs.live == true
+        env:
+          REQUEST_MIN_INTERVAL_SECONDS: "0.35"
+          REQUEST_TIMEOUT_SECONDS: "15"
+          REQUEST_MAX_RETRIES: "1"
+          REQUEST_RETRY_BASE_SECONDS: "2"
+          VERIFY_REPORT_DATE: ${{ inputs.report_date }}
+        run: python3 -u .github/scripts/verify_high_low.py --date "$VERIFY_REPORT_DATE"
+      - name: Upload verification evidence
+        if: always() && inputs.live == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: high-low-verification
+          path: validation-artifacts/
+          if-no-files-found: warn

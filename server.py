@@ -15,9 +15,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from functools import lru_cache
+from functools import wraps
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -186,6 +187,32 @@ REQUEST_LOCK = threading.Lock()
 LAST_REQUEST_AT = 0.0
 REQUEST_MIN_INTERVAL_SECONDS = float(os.environ.get("REQUEST_MIN_INTERVAL_SECONDS", "1.25"))
 REQUEST_MAX_RETRIES = int(os.environ.get("REQUEST_MAX_RETRIES", "4"))
+REQUEST_RETRY_BASE_SECONDS = float(os.environ.get("REQUEST_RETRY_BASE_SECONDS", "30"))
+REPORT_FETCH_CONTEXT: ContextVar[dict | None] = ContextVar("report_fetch_context", default=None)
+
+
+def cache_report_fetch(fetch):
+    @wraps(fetch)
+    def cached(*args, **kwargs):
+        cache = REPORT_FETCH_CONTEXT.get()
+        if cache is None:
+            return fetch(*args, **kwargs)
+        key = (fetch.__name__, args, tuple(sorted(kwargs.items())))
+        if key not in cache:
+            cache[key] = fetch(*args, **kwargs)
+        return cache[key]
+    return cached
+
+
+def isolated_report_fetches(build):
+    @wraps(build)
+    def isolated(*args, **kwargs):
+        token = REPORT_FETCH_CONTEXT.set({})
+        try:
+            return build(*args, **kwargs)
+        finally:
+            REPORT_FETCH_CONTEXT.reset(token)
+    return isolated
 
 
 @dataclass
@@ -353,6 +380,8 @@ def load_remote_snapshot(report_date: str, report_url: str) -> tuple[dict[str, A
     with REPORT_CACHE_LOCK:
         cached = REMOTE_SNAPSHOT_CACHE_MEMORY.get(report_date)
         if cached and now - cached["loaded_at"] <= REMOTE_SNAPSHOT_CACHE_TTL:
+            if cached["report"] is None:
+                return None
             report = copy.deepcopy(cached["report"])
             report["meta"]["reportUrl"] = report_url
             normalize_important_dates(report)
@@ -370,9 +399,13 @@ def load_remote_snapshot(report_date: str, report_url: str) -> tuple[dict[str, A
     try:
         with urllib.request.urlopen(request, timeout=min(10, REQUEST_TIMEOUT_SECONDS)) as response:
             report = json.loads(response.read().decode("utf-8", "ignore"))
-    except (OSError, ValueError, urllib.error.HTTPError, urllib.error.URLError):
+    except (OSError, ValueError):
+        with REPORT_CACHE_LOCK:
+            REMOTE_SNAPSHOT_CACHE_MEMORY[report_date] = {"loaded_at": now, "report": None}
         return None
 
+    if not isinstance(report, dict):
+        return None
     tables = report.get("tables") or {}
     summary_rows = (report.get("changeOverview") or {}).get("highLowAlignmentSummaryRows") or []
     if (
@@ -398,10 +431,14 @@ def load_available_snapshot(
     report_date: str,
     report_url: str,
     *,
-    allow_remote: bool = True,
+    prefer_remote: bool = False,
 ) -> tuple[dict[str, Any], bytes | None] | None:
+    if prefer_remote:
+        snapshot = load_remote_snapshot(report_date, report_url)
+        if snapshot:
+            return snapshot
     snapshot = load_snapshot(report_date, report_url)
-    if snapshot or not allow_remote:
+    if snapshot or prefer_remote:
         return snapshot
     return load_remote_snapshot(report_date, report_url)
 
@@ -537,10 +574,14 @@ def cached_report(
     force_refresh: bool = False,
     *,
     fast_build: bool = False,
+    revalidate_snapshot: bool = False,
 ) -> tuple[dict[str, Any], str]:
+    if revalidate_snapshot:
+        with REPORT_CACHE_LOCK:
+            REMOTE_SNAPSHOT_CACHE_MEMORY.pop(report_date or latest_business_day(), None)
     if not report_date and not force_refresh:
         latest_business = latest_business_day()
-        snapshot = load_available_snapshot(latest_business, report_url)
+        snapshot = load_available_snapshot(latest_business, report_url, prefer_remote=True)
         if snapshot:
             report, pdf_data = snapshot
             key = cache_key(latest_business, report_url)
@@ -551,6 +592,8 @@ def cached_report(
             snapshot = load_snapshot(snapshot_date, report_url)
             if snapshot:
                 report, pdf_data = snapshot
+                report["meta"]["requestedDate"] = latest_business
+                report["meta"]["fallbackReason"] = "requested_snapshot_not_ready"
                 key = cache_key(snapshot_date, report_url)
                 save_cached_report(key, report, pdf_data)
                 return report, key
@@ -569,7 +612,9 @@ def cached_report(
             fallback_reason = "requested_date_not_business_day"
 
         if fallback_ceiling:
-            snapshot = load_available_snapshot(fallback_ceiling, report_url)
+            snapshot = load_available_snapshot(
+                fallback_ceiling, report_url, prefer_remote=revalidate_snapshot
+            )
             fallback_date = fallback_ceiling if snapshot else latest_ready_snapshot_date(fallback_ceiling, report_url)
             if fallback_date:
                 snapshot = snapshot or load_snapshot(fallback_date, report_url)
@@ -582,7 +627,7 @@ def cached_report(
                     return report, key
 
     if report_date and not force_refresh and report_date == latest_business_day():
-        snapshot = load_available_snapshot(report_date, report_url)
+        snapshot = load_available_snapshot(report_date, report_url, prefer_remote=True)
         if snapshot:
             report, pdf_data = snapshot
             key = cache_key(report_date, report_url)
@@ -612,7 +657,9 @@ def cached_report(
         ttl = cache_ttl_for_date(candidate_date)
         should_force = force_refresh and index == 0
         if not should_force:
-            snapshot = load_available_snapshot(candidate_date, report_url)
+            snapshot = load_available_snapshot(
+                candidate_date, report_url, prefer_remote=revalidate_snapshot
+            )
             if snapshot:
                 report, pdf_data = snapshot
                 save_cached_report(key, report, pdf_data)
@@ -656,7 +703,7 @@ def _retry_delay(attempt: int, exc: urllib.error.HTTPError | None = None) -> flo
                 return min(float(retry_after), 90.0)
             except ValueError:
                 pass
-    return min(30.0 * (attempt + 1), 120.0)
+    return min(REQUEST_RETRY_BASE_SECONDS * (attempt + 1), 120.0)
 
 
 class _HardTimeout:
@@ -1428,7 +1475,7 @@ def fetch_futures_history_rows(report_date: str, count: int = 5) -> list[dict[st
     return history
 
 
-@lru_cache(maxsize=512)
+@cache_report_fetch
 def fetch_futures_rows_for_date(report_date: str) -> list[dict[str, Any]]:
     try:
         html = request_html(
@@ -1735,7 +1782,7 @@ def fetch_option_history_rows(report_date: str, count: int = 5) -> list[dict[str
     return history
 
 
-@lru_cache(maxsize=512)
+@cache_report_fetch
 def _fetch_tx_reference_for_date(report_date: str) -> dict[str, Any]:
     html = request_html(
         TAIFEX,
@@ -1799,7 +1846,7 @@ def fetch_monthly_option_atm_range_for_date(report_date: str) -> dict[str, Any] 
         return None
 
 
-@lru_cache(maxsize=36)
+@cache_report_fetch
 def _fetch_taiex_month_history(month_key: str) -> dict[str, Any]:
     return json.loads(
         request_bytes(
@@ -2956,7 +3003,7 @@ def build_institution_option_history_rows(
     return rows
 
 
-@lru_cache(maxsize=512)
+@cache_report_fetch
 def fetch_option_rows_for_date(report_date: str) -> list[dict[str, Any]]:
     try:
         html = request_html(
@@ -3279,7 +3326,7 @@ def parse_large_trader_option_rows(table: list[list[str]], monthly_code: str) ->
     return rows
 
 
-@lru_cache(maxsize=512)
+@cache_report_fetch
 def fetch_large_trader_option_for_date(report_date: str, monthly_code: str) -> list[dict[str, Any]] | None:
     try:
         html = request_html(
@@ -3294,7 +3341,7 @@ def fetch_large_trader_option_for_date(report_date: str, monthly_code: str) -> l
         return None
 
 
-@lru_cache(maxsize=512)
+@cache_report_fetch
 def fetch_large_trader_for_date(report_date: str, monthly_code: str) -> list[dict[str, Any]] | None:
     try:
         rows = request_csv_rows(
@@ -4649,6 +4696,7 @@ def build_report_pdf(report: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+@isolated_report_fetches
 def build_report(
     report_date: str | None = None,
     report_url: str | None = None,
@@ -5360,11 +5408,11 @@ class Handler(SimpleHTTPRequestHandler):
                 report_url = f"{PUBLIC_BASE_URL}/{report_query}" if report_query else PUBLIC_BASE_URL
             else:
                 report_url = f"{scheme}://{host}/{report_query}"
-            payload, _ = cached_report(report_date, report_url, force_refresh=force_refresh)
+            payload, _ = cached_report(report_date, report_url, revalidate_snapshot=force_refresh)
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", report_cache_control(payload))
+            self.send_header("Cache-Control", "no-store" if not report_date or force_refresh else report_cache_control(payload))
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

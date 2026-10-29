@@ -318,6 +318,15 @@ def capture_report_screenshots(
             browser = p.chromium.launch()
             # Higher pixel density makes small table text readable in Telegram.
             page = browser.new_page(viewport={"width": 1400, "height": 2200}, device_scale_factor=2)
+            if report:
+                page.route(
+                    re.compile(r".*/api/report(?:\?.*)?$"),
+                    lambda route: route.fulfill(
+                        status=200,
+                        content_type="application/json; charset=utf-8",
+                        body=json.dumps(report, ensure_ascii=False),
+                    ),
+                )
 
             for attempt in range(3):
                 try:
@@ -573,13 +582,44 @@ def report_is_ready(
             return False, f"高低點對照最新日期仍為 {first_alignment_date}，不是 {expected_date}"
 
     summary_rows = overview.get("highLowAlignmentSummaryRows", [])
+    if not summary_rows:
+        return False, "高低點彙整表尚未補齊"
     high_low_required_fields = (
+        "futuresHigh",
+        "futuresLow",
+        "futuresBuyTop5SpecificQty",
+        "futuresSellTop5SpecificQty",
+        "futuresBuyTop10SpecificQty",
+        "futuresSellTop10SpecificQty",
+        "futuresBuyTop5SpecificDay",
+        "futuresSellTop5SpecificDay",
+        "futuresBuyTop10SpecificDay",
+        "futuresSellTop10SpecificDay",
         "futuresBuyTop5SpecificCycle",
         "futuresSellTop5SpecificCycle",
         "futuresBuyTop10SpecificCycle",
         "futuresSellTop10SpecificCycle",
         "foreignFuturesBuyCycle",
         "foreignFuturesSellCycle",
+        "foreignFuturesBuyDay",
+        "foreignFuturesSellDay",
+        "foreignFuturesNetDay",
+        "callBuyTop5SpecificDay",
+        "callSellTop5SpecificDay",
+        "putBuyTop5SpecificDay",
+        "putSellTop5SpecificDay",
+        "callBuyTop10SpecificDay",
+        "callSellTop10SpecificDay",
+        "putBuyTop10SpecificDay",
+        "putSellTop10SpecificDay",
+        "foreignCallBuyDay",
+        "foreignCallSellDay",
+        "foreignPutBuyDay",
+        "foreignPutSellDay",
+        "foreignCallNetDay",
+        "foreignPutNetDay",
+        "highPointFuturesShortTotal",
+        "lowPointFuturesLongTotal",
     )
     rows_to_check = list(alignment_rows[:1])
     if summary_rows:
@@ -681,6 +721,13 @@ def report_is_ready(
         }
         for field, expected in arithmetic_checks.items():
             mismatch = require_equal(field, summary.get(field), expected)
+            if mismatch:
+                return mismatch
+
+        for field in high_low_required_fields:
+            mismatch = require_equal(
+                f"圖卡與彙整表 {field}", alignment_rows[0].get(field), summary.get(field)
+            )
             if mismatch:
                 return mismatch
 
@@ -854,12 +901,17 @@ def main() -> None:
                 ready = False
             else:
                 try:
+                    build_started = time.monotonic()
                     report, _ = cached_report(
                         requested_date,
                         report_url,
                         force_refresh=True,
                         fast_build=args.snapshot_only,
                     )
+                    print(json.dumps({
+                        "date": report["meta"]["date"],
+                        "reportBuildSeconds": round(time.monotonic() - build_started, 2),
+                    }, ensure_ascii=False), flush=True)
                     # Only block send when core tables are missing. E/G delays happen after 15:00.
                     ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
                 except Exception as exc:  # noqa: BLE001
@@ -975,6 +1027,7 @@ def main() -> None:
         delivery_state["highLowTelegram"] = True
         delivery_state["highLowTelegramItemCount"] = len(high_low_message_ids)
         delivery_state["highLowTelegramMessageIds"] = high_low_message_ids
+        delivery_state["highLowTelegramDeliveredAt"] = datetime.now(TW_TZ).isoformat(timespec="seconds")
         save_delivery_state(report["meta"]["date"], delivery_state)
         publish_snapshot(report["meta"]["date"])
 

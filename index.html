@@ -2042,6 +2042,17 @@
             return datePicker.value || "";
         }
 
+        function currentTaipeiDate() {
+            const parts = new Intl.DateTimeFormat("en-US", {
+                timeZone: "Asia/Taipei",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+            }).formatToParts(new Date());
+            const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+            return `${values.year}/${values.month}/${values.day}`;
+        }
+
         function shiftDate(days) {
             const base = currentSelectedDate() || new Date().toISOString().slice(0, 10);
             const dt = new Date(`${base}T00:00:00`);
@@ -2092,10 +2103,16 @@
 
         async function fetchReportJson(query, retries = 3) {
             let lastError = null;
+            const params = new URLSearchParams(query);
+            const requestedDate = params.get("date");
+            const bypassCache = params.has("refresh") || !requestedDate || requestedDate === currentTaipeiDate();
             for (let attempt = 0; attempt < retries; attempt += 1) {
+                const controller = new AbortController();
+                const timeoutId = window.setTimeout(() => controller.abort(), 25000);
                 try {
                     const response = await fetch(`/api/report${query}`, {
-                        cache: query.includes("refresh=1") ? "no-store" : "default",
+                        cache: bypassCache ? "no-store" : "default",
+                        signal: controller.signal,
                     });
                     const contentType = response.headers.get("content-type") || "";
                     const rawText = await response.text();
@@ -2115,11 +2132,13 @@
                     }
                     return data;
                 } catch (error) {
-                    lastError = error;
+                    lastError = error.name === "AbortError" ? new Error("伺服器回應逾時，請稍後重新整理。") : error;
                     if (attempt < retries - 1) {
                         await sleep(1500 * (attempt + 1));
                         continue;
                     }
+                } finally {
+                    window.clearTimeout(timeoutId);
                 }
             }
             throw lastError || new Error("資料載入失敗");
@@ -2132,7 +2151,7 @@
             try {
                 const date = currentSelectedDate();
                 const loadingText = forceRefresh
-                    ? `正在重新抓取${date ? ` ${date.replaceAll("-", "/")}` : "最近一個營業日"}資料，將略過快取。`
+                    ? `正在更新${date ? ` ${date.replaceAll("-", "/")}` : "最近一個營業日"}資料，請稍候。`
                     : (date ? `正在抓取 ${date.replaceAll("-", "/")} 的歷史資料，請稍候。` : "正在抓取最近一個營業日資料，請稍候。");
                 showLoadingState(loadingText);
                 const params = new URLSearchParams();

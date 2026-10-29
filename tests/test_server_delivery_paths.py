@@ -1,4 +1,5 @@
 import json
+import io
 import unittest
 from unittest import mock
 
@@ -56,6 +57,37 @@ class ServerDeliveryPathTest(unittest.TestCase):
         self.assertIsNotNone(second)
         self.assertEqual(first[0]["meta"]["reportUrl"], "https://example.test")
         self.assertEqual(urlopen.call_count, 1)
+
+    def test_refresh_button_revalidates_snapshot_without_building_report(self) -> None:
+        handler = server.Handler.__new__(server.Handler)
+        handler.headers = {"Host": "example.test"}
+        handler.wfile = io.BytesIO()
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+        with mock.patch("server.cached_report", return_value=({"meta": {"date": "2026/10/29"}}, "key")) as cached:
+            handler.serve_report("date=2026/10/29&refresh=1")
+        cached.assert_called_once_with(
+            "2026/10/29", "http://example.test/?date=2026/10/29", revalidate_snapshot=True
+        )
+        handler.send_header.assert_any_call("Cache-Control", "no-store")
+
+    def test_fetch_cache_does_not_keep_empty_results_across_retries(self) -> None:
+        fetch = mock.Mock(side_effect=[None, {"ready": True}])
+
+        @server.cache_report_fetch
+        def fetch_source(date):
+            return fetch(date)
+
+        @server.isolated_report_fetches
+        def build():
+            first = fetch_source("2026/10/29")
+            self.assertEqual(first, fetch_source("2026/10/29"))
+            return first
+
+        self.assertIsNone(build())
+        self.assertEqual(build(), {"ready": True})
+        self.assertEqual(fetch.call_count, 2)
 
 
 if __name__ == "__main__":

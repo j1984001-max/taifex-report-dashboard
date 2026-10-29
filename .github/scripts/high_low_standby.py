@@ -184,7 +184,7 @@ def source_is_ready(report_date: str) -> tuple[bool, str]:
 
 
 def run_release_watch(token: str, report_date: str, now: datetime) -> None:
-    target = datetime.combine(now.date(), datetime_time(15, 1), tzinfo=TAIPEI)
+    target = datetime.combine(now.date(), datetime_time(15, 0), tzinfo=TAIPEI)
     deadline = datetime.combine(now.date(), datetime_time(16, 31), tzinfo=TAIPEI)
 
     if sleep_until(target, report_date):
@@ -212,7 +212,7 @@ def run_release_watch(token: str, report_date: str, now: datetime) -> None:
             flush=True,
         )
 
-        cooldown_over = last_dispatch is None or now - last_dispatch >= timedelta(minutes=8)
+        cooldown_over = last_dispatch is None or now - last_dispatch >= timedelta(minutes=2)
         if ready and cooldown_over and not fast_push_is_running(token):
             try:
                 dispatch_fast_push(token, report_date, "github-standby-source-ready")
@@ -223,7 +223,7 @@ def run_release_watch(token: str, report_date: str, now: datetime) -> None:
         if now >= deadline:
             print(json.dumps({"standbyDeadlineReached": report_date}), flush=True)
             return
-        time.sleep(60)
+        time.sleep(30)
 
 
 def main() -> None:

@@ -1,11 +1,6 @@
 name: TAIFEX Recovery 2026-06-25
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/taifex-recovery-2026-06-25.yml"
   workflow_dispatch:
 
 concurrency:
