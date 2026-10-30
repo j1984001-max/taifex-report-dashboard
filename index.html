@@ -17,6 +17,20 @@
         .dark tr:hover { background: #162235; }
         .num-pos { color: #dc2626; font-weight: 700; }
         .num-neg { color: #16a34a; font-weight: 700; }
+        .weekly-quick-view { margin: 24px 0; padding: 20px 0; border-top: 2px solid #0f766e; border-bottom: 1px solid #cbd5e1; letter-spacing: 0; }
+        .weekly-quick-header { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .weekly-quick-header h4 { font-size: 20px; font-weight: 800; }
+        .weekly-quick-meta { font-size: 13px; line-height: 1.8; color: #64748b; }
+        .weekly-quick-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+        .weekly-quick-group { min-width: 0; }
+        .weekly-quick-group h5 { font-size: 16px; font-weight: 800; padding: 8px 0; }
+        .weekly-quick-group table { table-layout: fixed; font-size: 13px; font-variant-numeric: tabular-nums; }
+        .weekly-quick-group th, .weekly-quick-group td { padding: 10px 4px; vertical-align: middle; overflow-wrap: anywhere; }
+        .weekly-quick-group th:first-child { width: 30%; }
+        .weekly-quick-group th { font-size: 12px; }
+        .weekly-quick-view footer { margin-top: 12px; font-size: 12px; line-height: 1.8; color: #64748b; }
+        .dark .weekly-quick-meta, .dark .weekly-quick-view footer { color: #94a3b8; }
+        @media (max-width: 1000px) { .weekly-quick-groups { grid-template-columns: 1fr; } }
         /* WantGoo-style tables (C/D) */
         .wantgoo-table {
             border-collapse: separate;
@@ -1028,6 +1042,39 @@
             `;
         }
 
+        function renderWeeklyQuickView(view) {
+            if (!view || !view.groups || !view.groups.length) return "";
+            return `
+                <div id="weeklyQuickView" class="weekly-quick-view">
+                    <header class="weekly-quick-header">
+                        <h4>週契約特定法人速覽</h4>
+                        <div class="font-bold">${escapeHtml(view.date)}</div>
+                    </header>
+                    <div class="weekly-quick-meta">週基準日 ${escapeHtml(view.baselineDate)} 收盤 · 單位：口</div>
+                    <div class="weekly-quick-groups">
+                        ${view.groups.map(group => `
+                            <div class="weekly-quick-group" data-weekly-group="${escapeHtml(group.key)}">
+                                <h5>${escapeHtml(group.label)}</h5>
+                                <div class="weekly-quick-meta">全市場 ${formatNumber(group.marketOi)} · 前日 ${escapeHtml(group.previousDate || "缺資料")}</div>
+                                <table>
+                                    <thead><tr><th>特定法人</th><th>目前口數</th><th>單日增減</th><th>週累積</th></tr></thead>
+                                    <tbody>${group.metrics.map(metric => `
+                                        <tr data-weekly-metric="${escapeHtml(metric.key)}">
+                                            <td>${escapeHtml(metric.label)}</td>
+                                            <td class="font-bold">${formatNumber(metric.qty)}</td>
+                                            <td class="${signedClass(metric.day)}">${formatSigned(metric.day)}</td>
+                                            <td class="${signedClass(metric.cycle)}">${formatSigned(metric.cycle)}</td>
+                                        </tr>
+                                    `).join("")}</tbody>
+                                </table>
+                            </div>
+                        `).join("")}
+                    </div>
+                    <footer>${escapeHtml(view.contractScope)}。週累積＝目前口數－週基準日收盤口數；含到期、加掛與排名變動，非純新增交易量。期貨為 TX＋MTX/4＋TMF/20 換算。</footer>
+                </div>
+            `;
+        }
+
         function renderHighLowAlignmentTable(rows, summaryRows = []) {
             if (!rows || !rows.length) return "";
             return `
@@ -1154,6 +1201,7 @@
                         </ul>
                     </div>
                 ` : ""}
+                ${renderWeeklyQuickView(section.weeklyQuickView)}
                 ${section.highLowAlignmentRows && section.highLowAlignmentRows.length ? renderHighLowAlignmentTable(section.highLowAlignmentRows, section.highLowAlignmentSummaryRows || []) : ""}
                 ${section.futuresOverviewHighlights && section.futuresOverviewHighlights.length ? renderBullets("期貨差異變動速覽", section.futuresOverviewHighlights) : ""}
                 ${section.largeTraderOverviewHighlights && section.largeTraderOverviewHighlights.length ? renderBullets("大額交易人前五大 / 前十大", section.largeTraderOverviewHighlights) : ""}

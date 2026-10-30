@@ -1543,6 +1543,61 @@ def cycle_start_thursday(report_date: str) -> str:
     return thursday.strftime("%Y/%m/%d")
 
 
+def large_option_cycle_map(cycle_rows: dict[str, list[dict[str, Any]]]) -> dict[tuple[str, str], dict[str, Any]]:
+    # Each response includes both maturities; only retain the requested baseline.
+    return {
+        (row["contractType"], row["optionSide"]): row
+        for contract_type, rows in cycle_rows.items()
+        for row in rows
+        if row.get("contractType") == contract_type
+    }
+
+
+def build_weekly_quick_view(
+    report_date: str,
+    futures_rows: list[dict[str, Any]],
+    option_rows: list[dict[str, Any]],
+    previous_futures_rows: list[dict[str, Any]],
+    previous_option_rows: list[dict[str, Any]],
+    baseline_futures_rows: list[dict[str, Any]],
+    baseline_option_rows: list[dict[str, Any]],
+    futures_previous_date: str | None,
+    option_previous_date: str | None,
+) -> dict[str, Any]:
+    baseline_date = cycle_start_thursday(report_date)
+    groups = []
+    for key, label in (("futures", "週期貨"), ("call", "週選買權"), ("put", "週選賣權")):
+        def select(rows: list[dict[str, Any]]) -> dict[str, Any]:
+            return next((row for row in rows if row.get("contractType") == "weekly"
+                         and (key == "futures" or row.get("optionSide") == key)), {})
+
+        is_futures = key == "futures"
+        current = select(futures_rows if is_futures else option_rows)
+        previous = select(previous_futures_rows if is_futures else previous_option_rows)
+        baseline = select(baseline_futures_rows if is_futures else baseline_option_rows)
+        previous_date = futures_previous_date if is_futures else option_previous_date
+        metrics = []
+        for field, metric_label in (("longTop5", "買方前五大"), ("longTop10", "買方前十大"),
+                                    ("shortTop5", "賣方前五大"), ("shortTop10", "賣方前十大")):
+            qty = current.get(f"{field}SpecificQty")
+            prev_qty = previous.get(f"{field}SpecificQty")
+            baseline_qty = baseline.get(f"{field}SpecificQty")
+            metrics.append({
+                "key": field, "label": metric_label, "qty": qty,
+                "previousQty": prev_qty, "baselineQty": baseline_qty,
+                "day": qty - prev_qty if qty is not None and prev_qty is not None else None,
+                "cycle": qty - baseline_qty if qty is not None and baseline_qty is not None else None,
+            })
+        groups.append({"key": key, "label": label, "marketOi": current.get("marketOi"),
+                       "previousDate": previous_date, "metrics": metrics})
+    return {
+        "date": report_date, "baselineDate": baseline_date,
+        "contractScope": "期交所週契約合計（非單一到期序列）",
+        "groups": groups,
+        "sources": [f"{TAIFEX}/cht/3/largeTraderFutQry", f"{TAIFEX}/cht/3/largeTraderOptQry"],
+    }
+
+
 def third_wednesday(year: int, month: int) -> str:
     current = datetime(year, month, 1)
     while current.weekday() != 2:
@@ -5276,11 +5331,7 @@ def build_report(
             f"自 {cycle_label_date} 起累積前五大 {format_signed(short5_cycle)}、前十大 {format_signed(short10_cycle)}。"
         )
 
-    option_cycle_map = {
-        (row["contractType"], row["optionSide"]): row
-        for key, rows in large_option_cycle_rows.items()
-        for row in rows
-    }
+    option_cycle_map = large_option_cycle_map(large_option_cycle_rows)
     for row in large_trader_option_rows:
         prev = option_prev_map.get((row["contractType"], row["optionSide"]))
         cycle = option_cycle_map.get((row["contractType"], row["optionSide"]))
@@ -5406,6 +5457,12 @@ def build_report(
     report["changeOverview"]["optionOverviewHighlights"] = report["tables"]["D"]["highlights"][:3] + option_specific_overview
 
     report["tables"]["C"]["highlights"] = large_highlights
+    report["changeOverview"]["weeklyQuickView"] = build_weekly_quick_view(
+        base_date, large_trader_rows, large_trader_option_rows,
+        large_previous_rows or [], large_option_previous_rows or [],
+        large_cycle_rows.get("weekly") or [], large_option_cycle_rows.get("weekly") or [],
+        large_previous_date, large_option_previous_date,
+    )
     report["analysis"] = build_analysis(report)
     report["changeOverview"]["prediction"] = build_overview_prediction(report)
     report["telegram"] = build_telegram_text(report)

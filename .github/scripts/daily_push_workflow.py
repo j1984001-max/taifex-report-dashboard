@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from server import PUBLIC_BASE_URL, TW_TZ, latest_business_day
-from send_daily_push import high_low_delivery_complete, load_delivery_state, report_is_ready
+from send_daily_push import high_low_delivery_complete, load_delivery_state, report_is_ready, weekly_delivery_complete
 
 
 def latest_released_business_day(now: datetime | None = None) -> str:
@@ -34,6 +34,8 @@ def resolve_target() -> dict:
         try:
             report = json.loads((ROOT / "snapshots" / f"{report_date.replace('/', '-')}.json").read_text(encoding="utf-8"))
             complete, _ = report_is_ready(report, mode="minimal", expected_date=report_date)
+            if report.get("changeOverview", {}).get("weeklyQuickView") and not weekly_delivery_complete(delivery):
+                complete = False
         except (OSError, ValueError, TypeError):
             complete = False
     output_path = os.environ.get("GITHUB_OUTPUT")
@@ -83,6 +85,8 @@ def verify_published(report_date: str) -> dict:
     delivery = fetch_json(f"{raw_base}.delivery.json?verify={cache_bust}")
     if delivery.get("date") != report_date or delivery.get("complete") is not True or not high_low_delivery_complete(delivery):
         raise RuntimeError(f"Published delivery record incomplete for {report_date}")
+    if report.get("changeOverview", {}).get("weeklyQuickView") and not weekly_delivery_complete(delivery):
+        raise RuntimeError(f"Published weekly delivery record incomplete for {report_date}")
 
     site_warning = None
     try:

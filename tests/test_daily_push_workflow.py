@@ -23,6 +23,7 @@ class DailyPushWorkflowTest(unittest.TestCase):
             "date": "2026/10/29", "complete": True, "highLowTelegram": True,
             "highLowTelegramItemCount": 3, "highLowTelegramMessageIds": [4227, 4228, 4229],
             "detailTelegram": True, "email": True,
+            "weeklyTelegram": True, "weeklyTelegramMessageId": 42,
         }
 
     def test_target_is_stable_across_the_reported_midnight_boundary(self):
@@ -56,6 +57,13 @@ class DailyPushWorkflowTest(unittest.TestCase):
     def test_missing_delivery_still_fails_verification(self):
         with mock.patch.object(workflow, "fetch_json", side_effect=[self.report, {"date": "2026/10/29"}]):
             with self.assertRaisesRegex(RuntimeError, "delivery record incomplete"):
+                workflow.verify_published("2026/10/29")
+
+    def test_missing_weekly_delivery_is_not_treated_as_complete(self):
+        delivery = {**self.delivery, "weeklyTelegram": False}
+        report = {**self.report, "changeOverview": {**self.report["changeOverview"], "weeklyQuickView": {"date": "2026/10/29"}}}
+        with mock.patch.object(workflow, "fetch_json", side_effect=[report, delivery]):
+            with self.assertRaisesRegex(RuntimeError, "weekly delivery record incomplete"):
                 workflow.verify_published("2026/10/29")
 
     def test_explicit_completed_target_does_not_resend(self):

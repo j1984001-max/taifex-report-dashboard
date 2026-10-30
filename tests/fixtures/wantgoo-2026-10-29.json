@@ -1,0 +1,38 @@
+{
+  "date": "2026/10/29",
+  "checkedOn": "2026/10/30",
+  "sources": {
+    "futures": "https://www.wantgoo.com/futures/large-traders/bull-bear-open-interest",
+    "futuresNet": "https://www.wantgoo.com/futures/large-traders/net-open-interest",
+    "monthlyOptions": "https://www.wantgoo.com/option/large-traders-open-interest",
+    "weeklyOptionsAndInstitutions": "https://www.wantgoo.com/futures",
+    "foreignOptions": "https://www.wantgoo.com/option/institutional-investors-call-put"
+  },
+  "metricKeys": ["longTop5", "shortTop5", "longTop10", "shortTop10", "longTop5Specific", "shortTop5Specific", "longTop10Specific", "shortTop10Specific"],
+  "futures": {
+    "qty": [83647, 53964, 92810, 81120, 83647, 53964, 91944, 76120],
+    "day": [-2069, 975, -1505, 1708, -2069, 975, -2371, 1708],
+    "net": [29683, 11690, 29683, 15824],
+    "netDay": [-3044, -3213, -3044, -4079]
+  },
+  "options": [
+    {"contractType": "monthly", "optionSide": "call", "qty": [6670, 8244, 8476, 10073, 2691, 2290, 2691, 3379], "day": [231, 543, 245, 710, 659, 100, 659, 131], "marketOi": 19283},
+    {"contractType": "monthly", "optionSide": "put", "qty": [6233, 8089, 7922, 10180, 1574, 3488, 2288, 4888], "day": [-160, 291, -77, 129, -6, 50, 59, 50], "marketOi": 17828},
+    {"contractType": "weekly", "optionSide": "call", "qty": [31541, 46448, 36930, 51846, 0, 16700, 689, 17522], "day": [7300, 18862, 10083, 22182, -862, 2700, -1091, 2956], "marketOi": 73992},
+    {"contractType": "weekly", "optionSide": "put", "qty": [14505, 11779, 17268, 14276, 0, 1480, 2179, 1927], "day": [2940, 2504, 4430, 3508, -862, 1110, 1317, 936], "marketOi": 42372}
+  ],
+  "institutionalFutures": [
+    {"institution": "外資", "net": -89522, "day": -4605},
+    {"institution": "投信", "net": 87218, "day": 39},
+    {"institution": "自營商", "net": 1511, "day": 1028}
+  ],
+  "institutionOptionKeys": ["oiLongQty", "oiLongQtyDay", "oiShortQty", "oiShortQtyDay", "oiNetQty"],
+  "institutionalOptions": [
+    {"institution": "外資", "optionSide": "call", "values": [16389, 2840, 16204, 3330, 185]},
+    {"institution": "外資", "optionSide": "put", "values": [12363, 3166, 11154, 2853, 1209]},
+    {"institution": "投信", "optionSide": "call", "values": [5, 0, 17681, 2744, -17676]},
+    {"institution": "投信", "optionSide": "put", "values": [347, 32, 0, 0, 347]},
+    {"institution": "自營商", "optionSide": "call", "values": [38881, 5170, 30047, 11332, 8834]},
+    {"institution": "自營商", "optionSide": "put", "values": [23672, 3203, 21818, 3040, 1854]}
+  ]
+}

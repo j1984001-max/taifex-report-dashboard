@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from server import build_report, latest_business_day
-from send_daily_push import capture_report_screenshots, report_is_ready
+from send_daily_push import capture_report_screenshots, report_is_ready, weekly_view_is_ready
 
 
 def main() -> None:
@@ -28,11 +28,14 @@ def main() -> None:
     ready, reason = report_is_ready(report, mode="minimal", expected_date=report_date)
     if not ready:
         raise RuntimeError(reason)
+    weekly_ready, weekly_reason = weekly_view_is_ready(report)
+    if not weekly_ready:
+        raise RuntimeError(weekly_reason)
     build_seconds = round(time.monotonic() - started, 2)
     print(json.dumps({"date": report_date, "buildSeconds": build_seconds, "dataValidated": True}), flush=True)
 
-    screenshots = capture_report_screenshots(report_date, report=report, include_detail_sections=False)
-    required = ("high_low_cards", "high_low_summary")
+    screenshots = capture_report_screenshots(report_date, report=report, include_detail_sections=False, include_weekly=True)
+    required = ("high_low_cards", "high_low_summary", "weekly_quick_view")
     for key in required:
         data = screenshots.get(key)
         if not data:
@@ -44,6 +47,7 @@ def main() -> None:
         "totalSeconds": round(time.monotonic() - started, 2),
         "screenshots": {key: len(screenshots[key]) for key in required},
         "currentRow": report["changeOverview"]["highLowAlignmentSummaryRows"][0],
+        "weeklyQuickView": report["changeOverview"]["weeklyQuickView"],
         "telegramSent": False,
     }
     (output / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

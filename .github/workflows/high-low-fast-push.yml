@@ -92,6 +92,12 @@ jobs:
               and delivery.get("highLowTelegramItemCount") == len(message_ids)
               and all(type(message_id) is int and message_id > 0 for message_id in message_ids)
           )
+          report_path = Path("snapshots") / f"{slug}.json"
+          if done and report_path.exists():
+              report = json.loads(report_path.read_text(encoding="utf-8"))
+              if report.get("changeOverview", {}).get("weeklyQuickView"):
+                  weekly_id = delivery.get("weeklyTelegramMessageId")
+                  done = delivery.get("weeklyTelegram") is True and type(weekly_id) is int and weekly_id > 0
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"done={'true' if done else 'false'}\n")
               output.write(f"date={expected}\n")
@@ -247,6 +253,10 @@ jobs:
           )
           if not delivery_complete:
               raise SystemExit(f"high-low delivery incomplete: {delivery}")
+          if snapshot.get("changeOverview", {}).get("weeklyQuickView"):
+              weekly_id = delivery.get("weeklyTelegramMessageId")
+              if delivery.get("weeklyTelegram") is not True or type(weekly_id) is not int or weekly_id <= 0:
+                  raise SystemExit(f"weekly delivery incomplete: {delivery}")
 
           print(json.dumps({
               "verifiedHighLowDelivery": expected,

@@ -35,6 +35,7 @@ from server import (
     save_snapshot,
     snapshot_paths,
     to_int,
+    cycle_start_thursday,
 )
 
 
@@ -79,6 +80,83 @@ def high_low_delivery_complete(state: dict[str, object]) -> bool:
         and item_count == len(message_ids)
         and all(type(message_id) is int and message_id > 0 for message_id in message_ids)
     )
+
+
+def weekly_delivery_complete(state: dict[str, object]) -> bool:
+    message_id = state.get("weeklyTelegramMessageId")
+    return state.get("weeklyTelegram") is True and type(message_id) is int and message_id > 0
+
+
+def weekly_view_is_ready(report: dict) -> tuple[bool, str]:
+    view = report.get("changeOverview", {}).get("weeklyQuickView") or {}
+    report_date = report.get("meta", {}).get("date")
+    try:
+        baseline_date = cycle_start_thursday(report_date)
+    except (TypeError, ValueError):
+        return False, "週契約報表日期無效"
+    if view.get("date") != report_date or view.get("baselineDate") != baseline_date:
+        return False, "週契約日期或基準日期不符"
+    groups = view.get("groups") or []
+    if len(groups) != 3 or {group.get("key") for group in groups} != {"futures", "call", "put"}:
+        return False, "週契約期貨／買權／賣權資料未齊"
+    tables = report.get("tables") or {}
+    for group in groups:
+        table = tables.get("C" if group["key"] == "futures" else "D") or {}
+        if table.get("date") != report_date:
+            return False, "週契約來源日期不符"
+        source = next((row for row in table.get("rows" if group["key"] == "futures" else "specificRows", [])
+                       if row.get("contractType") == "weekly" and
+                       (group["key"] == "futures" or row.get("optionSide") == group["key"])), {})
+        metrics = group.get("metrics") or []
+        if len(metrics) != 4 or {item.get("key") for item in metrics} != {"longTop5", "longTop10", "shortTop5", "shortTop10"}:
+            return False, "週契約特定法人欄位未齊"
+        previous_date = group.get("previousDate")
+        if (not previous_date or previous_date >= report_date or type(group.get("marketOi")) is not int
+                or group["marketOi"] < 0 or source.get("marketOi") != group["marketOi"]):
+            return False, "週契約前日或全市場口數不符"
+        for metric in metrics:
+            if any(type(metric.get(key)) is not int for key in ("qty", "day", "cycle", "previousQty", "baselineQty")):
+                return False, "週契約口數或比較基準缺資料"
+            if any(metric[key] < 0 for key in ("qty", "previousQty", "baselineQty")):
+                return False, "週契約未平倉口數不可為負"
+            if (metric["qty"] != source.get(f"{metric['key']}SpecificQty")
+                    or metric["day"] != metric["qty"] - metric["previousQty"]
+                    or metric["cycle"] != metric["qty"] - metric["baselineQty"]
+                    or (view["baselineDate"] == report_date and metric["cycle"] != 0)):
+                return False, "週契約口數或增減計算不符"
+            if group["key"] != "futures" and (
+                source.get("previousDate") != previous_date
+                or source.get("cycleStartDate") != view["baselineDate"]
+                or metric["day"] != source.get(f"{metric['key']}SpecificDay")
+                or metric["cycle"] != source.get(f"{metric['key']}SpecificCycle")
+            ):
+                return False, "週契約速覽與明細不符"
+    return True, "ok"
+
+
+def send_weekly_screenshot(report: dict, state: dict, token: str, chat_id: str, image: bytes | None = None) -> dict | None:
+    if not report.get("changeOverview", {}).get("weeklyQuickView") or weekly_delivery_complete(state):
+        return None
+    ready, reason = weekly_view_is_ready(report)
+    if not ready:
+        raise RuntimeError(reason)
+    if not image:
+        shots = capture_report_screenshots(report["meta"]["date"], report=report,
+                                           include_high_low=False, include_detail_sections=False, include_weekly=True)
+        image = shots.get("weekly_quick_view")
+    if not image:
+        raise RuntimeError("週契約速覽截圖失敗，不寫入送達標記")
+    report_date = report["meta"]["date"]
+    result = send_telegram_document(token, chat_id, caption=f"週契約特定法人速覽（{report_date}）",
+                                    filename=f"weekly-quick-view-{report_date.replace('/', '-')}.png", data=image)
+    message_id = result.get("result", {}).get("message_id")
+    if type(message_id) is not int or message_id <= 0:
+        raise RuntimeError("週契約 Telegram 回覆不完整，不寫入送達標記")
+    state.update(weeklyTelegram=True, weeklyTelegramMessageId=message_id,
+                 weeklyTelegramDeliveredAt=datetime.now(TW_TZ).isoformat(timespec="seconds"))
+    save_delivery_state(report_date, state)
+    publish_snapshot(report_date)
+    return result
 
 
 def parse_dotenv(path: Path) -> dict[str, str]:
@@ -298,6 +376,7 @@ def capture_report_screenshots(
     report: dict[str, object] | None = None,
     include_high_low: bool = True,
     include_detail_sections: bool = True,
+    include_weekly: bool = False,
 ) -> dict[str, bytes]:
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
@@ -382,6 +461,10 @@ def capture_report_screenshots(
                             large_container = d_section.locator("#dLargeTraderPanels").first
                             if large_container.count() > 0:
                                 screenshots["d_specific"] = large_container.screenshot(type="png")
+                    if include_weekly:
+                        weekly_panel = page.locator("#weeklyQuickView")
+                        weekly_panel.wait_for(timeout=30_000)
+                        screenshots["weekly_quick_view"] = weekly_panel.screenshot(type="png")
                     break
                 except Exception as exc:  # noqa: BLE001
                     print(json.dumps({
@@ -850,6 +933,7 @@ def main() -> None:
                 existing_ready
                 and delivery_state.get("complete") is True
                 and high_low_delivery_complete(delivery_state)
+                and (not existing_report.get("changeOverview", {}).get("weeklyQuickView") or weekly_delivery_complete(delivery_state))
             ):
                 print(json.dumps({
                     "date": expected_date,
@@ -1035,6 +1119,11 @@ def main() -> None:
         save_delivery_state(report["meta"]["date"], delivery_state)
         publish_snapshot(report["meta"]["date"])
 
+    # The original high-low bundle is persisted before the independent weekly send.
+    weekly_result = send_weekly_screenshot(report, delivery_state, token, args.chat_id)
+    if weekly_result:
+        results.append(weekly_result)
+
     if args.high_low_only:
         print(json.dumps({
             "date": report["meta"]["date"],
@@ -1113,6 +1202,7 @@ def main() -> None:
         delivery_state["email"] = True
     delivery_state["complete"] = bool(
         high_low_delivery_complete(delivery_state)
+        and (not report.get("changeOverview", {}).get("weeklyQuickView") or weekly_delivery_complete(delivery_state))
         and delivery_state.get("detailTelegram") is True
         and delivery_state.get("email") is True
     )
