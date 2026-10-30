@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       live:
-        description: "Fetch current official data and render both screenshots without sending."
+        description: "Fetch current official data and render high-low and weekly screenshots without sending."
         type: boolean
         default: false
       report_date:
@@ -49,7 +49,7 @@ jobs:
         run: |
           pip install playwright==1.59.0
           python3 -m playwright install --with-deps chromium
-      - name: Verify official current data and both screenshots
+      - name: Verify official current data and all three screenshots
         if: inputs.live == true
         env:
           REQUEST_MIN_INTERVAL_SECONDS: "0.35"

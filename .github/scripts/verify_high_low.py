@@ -14,6 +14,26 @@ from server import build_report, latest_business_day
 from send_daily_push import capture_report_screenshots, report_is_ready, weekly_view_is_ready
 
 
+def build_verified_report(report_date: str) -> dict:
+    for attempt in range(3):
+        try:
+            report = build_report(report_date, fast_build=True)
+            ready, reason = report_is_ready(report, mode="minimal", expected_date=report_date)
+            if not ready:
+                raise RuntimeError(reason)
+            weekly_ready, weekly_reason = weekly_view_is_ready(report)
+            if not weekly_ready:
+                raise RuntimeError(weekly_reason)
+            return report
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(json.dumps({"date": report_date, "verificationBuildAttempt": attempt + 1,
+                              "error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False), flush=True)
+            if attempt == 2:
+                raise
+            time.sleep(5)
+    raise RuntimeError("Verification retry exhausted")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Verify official high-low data and render screenshots without sending.")
     parser.add_argument("--date", default="")
@@ -24,13 +44,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
 
     started = time.monotonic()
-    report = build_report(report_date, fast_build=True)
-    ready, reason = report_is_ready(report, mode="minimal", expected_date=report_date)
-    if not ready:
-        raise RuntimeError(reason)
-    weekly_ready, weekly_reason = weekly_view_is_ready(report)
-    if not weekly_ready:
-        raise RuntimeError(weekly_reason)
+    report = build_verified_report(report_date)
     build_seconds = round(time.monotonic() - started, 2)
     print(json.dumps({"date": report_date, "buildSeconds": build_seconds, "dataValidated": True}), flush=True)
 
