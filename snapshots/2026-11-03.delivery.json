@@ -7,6 +7,9 @@
     4261
   ],
   "highLowTelegramDeliveredAt": "2026-11-03T15:13:41+08:00",
+  "weeklyTelegram": true,
+  "weeklyTelegramMessageId": 4262,
+  "weeklyTelegramDeliveredAt": "2026-11-03T15:13:45+08:00",
   "date": "2026/11/03",
-  "updatedAt": "2026-11-03T15:13:41+08:00"
+  "updatedAt": "2026-11-03T15:13:45+08:00"
 }
