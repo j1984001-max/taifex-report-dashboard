@@ -30,7 +30,8 @@ concurrency:
 
 jobs:
   high-low-fast-push:
-    runs-on: ubuntu-latest
+    # Keep the runner compatible with the pinned Playwright browser dependencies.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write
@@ -154,7 +155,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-1.59.0-${{ runner.os }}
+          key: playwright-chromium-1.59.0-ubuntu-24.04-${{ runner.arch }}
 
       - name: Install screenshot dependencies
         if: steps.delivery.outputs.done != 'true' && steps.source.outputs.ready == 'true'

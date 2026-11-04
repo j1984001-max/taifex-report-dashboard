@@ -10,7 +10,10 @@ on:
       - "tests/**"
       - ".github/scripts/**"
       - ".github/workflows/high-low-*.yml"
+      - ".github/workflows/daily-push*.yml"
+      - ".github/workflows/taifex-*.yml"
       - ".github/workflows/verify-high-low.yml"
+      - "requirements-test.txt"
   workflow_dispatch:
     inputs:
       live:
@@ -26,7 +29,8 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # Keep the runner compatible with the pinned Playwright browser dependencies.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +39,7 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install report dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-test.txt
       - name: Verify reference values and delivery safeguards
         run: python3 -m unittest discover -s tests -v
       - name: Cache Playwright browsers
@@ -43,7 +47,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-1.59.0-${{ runner.os }}
+          key: playwright-chromium-1.59.0-ubuntu-24.04-${{ runner.arch }}
       - name: Install screenshot dependencies
         if: inputs.live == true
         run: |
