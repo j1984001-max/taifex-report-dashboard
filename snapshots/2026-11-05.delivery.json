@@ -11,6 +11,8 @@
   "weeklyTelegramMessageId": 4289,
   "weeklyTelegramDeliveredAt": "2026-11-05T15:24:46+08:00",
   "date": "2026/11/05",
-  "updatedAt": "2026-11-05T23:09:56+08:00",
-  "detailTelegram": true
+  "updatedAt": "2026-11-05T23:10:02+08:00",
+  "detailTelegram": true,
+  "email": true,
+  "complete": true
 }
