@@ -657,6 +657,19 @@ def resolve_gate(date: str | None, dry_run: bool, automatic: bool, now: datetime
     return {"date": expected, "run": True, "reason": "ok"}
 
 
+def load_current_report(date: str) -> dict:
+    from send_daily_push import report_is_ready, weekly_view_is_ready
+
+    path = ROOT / "snapshots" / f"{date.replace('/', '-')}.json"
+    report = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(report, dict) or report.get("meta", {}).get("date") != date:
+        raise SourceNotReady(f"官方報告尚未更新至 {date}，不核對舊日備援報告")
+    for ready, reason in (report_is_ready(report, mode="minimal", expected_date=date), weekly_view_is_ready(report)):
+        if not ready:
+            raise SourceNotReady(f"官方報告尚未完整：{reason}")
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Reconcile the current TAIFEX snapshot against same-day public WantGoo data.")
     parser.add_argument("--date")
@@ -681,7 +694,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     report = None
     try:
-        report = json.loads((ROOT / "snapshots" / f"{args.date.replace('/', '-')}.json").read_text(encoding="utf-8"))
+        report = load_current_report(args.date)
         reference = collect_reference(report, output)
     except (SourceNotReady, OSError, ValueError) as exc:
         result = {"date": args.date, "status": "pending", "reason": f"{type(exc).__name__}: {exc}", "telegramSent": False}

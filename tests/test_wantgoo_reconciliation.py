@@ -185,6 +185,25 @@ class WantGooCorrectionTest(unittest.TestCase):
         self.assertEqual(self.report, original)
 
 
+class WantGooReportLoadTest(unittest.TestCase):
+    def test_current_complete_snapshot_is_accepted(self):
+        self.assertEqual(reconcile.load_current_report("2026/10/29")["meta"]["date"], "2026/10/29")
+
+    def test_stale_snapshot_cannot_be_used_as_today(self):
+        report = json.loads((ROOT / "snapshots/2026-10-29.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "snapshots").mkdir()
+            (root / "snapshots/2026-10-30.json").write_text(json.dumps(report), encoding="utf-8")
+            with mock.patch.object(reconcile, "ROOT", root), self.assertRaises(reconcile.SourceNotReady):
+                reconcile.load_current_report("2026/10/30")
+
+    def test_incomplete_current_weekly_view_is_rejected(self):
+        with mock.patch("send_daily_push.weekly_view_is_ready", return_value=(False, "incomplete")), \
+             self.assertRaises(reconcile.SourceNotReady):
+            reconcile.load_current_report("2026/10/29")
+
+
 class WantGooNotificationTest(unittest.TestCase):
     def test_completed_audit_skips_all_sends(self):
         audit = {"date": "2026/11/09", "fingerprint": "same", "status": "matched",
