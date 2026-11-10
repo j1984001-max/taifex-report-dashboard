@@ -6,11 +6,13 @@ on:
     paths:
       - "server.py"
       - "send_daily_push.py"
+      - "wantgoo_reconcile.py"
       - "index.html"
       - "tests/**"
       - ".github/scripts/**"
       - ".github/workflows/high-low-*.yml"
       - ".github/workflows/daily-push*.yml"
+      - ".github/workflows/wantgoo-reconcile.yml"
       - ".github/workflows/taifex-*.yml"
       - ".github/workflows/verify-high-low.yml"
       - "requirements-test.txt"

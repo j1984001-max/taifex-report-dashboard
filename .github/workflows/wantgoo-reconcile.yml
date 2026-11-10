@@ -1,0 +1,42 @@
+name: TAIFEX WantGoo Reconciliation
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: "Business date in YYYY/MM/DD."
+        required: true
+      dry_run:
+        description: "Check public reference access without publishing or sending."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt playwright==1.59.0
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.59.0-ubuntu-24.04-${{ runner.arch }}
+      - run: python3 -m playwright install --with-deps chromium
+      - name: Check same-day WantGoo reference
+        env:
+          REPORT_DATE: ${{ inputs.report_date }}
+        run: python3 -u wantgoo_reconcile.py --date "$REPORT_DATE" --dry-run
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wantgoo-reconciliation
+          path: wantgoo-artifacts/
+          if-no-files-found: warn

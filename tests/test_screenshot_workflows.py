@@ -24,7 +24,7 @@ class ScreenshotWorkflowTest(unittest.TestCase):
                             if "playwright" in key:
                                 self.assertIn("ubuntu-24.04", key)
                                 self.assertIn("runner.arch", key)
-        self.assertEqual(len(browser_jobs), 8)
+        self.assertEqual(len(browser_jobs), 9)
 
     def test_completed_daily_deliveries_skip_browser_setup_and_cache(self):
         for name in ("daily-push.yml", "daily-push-watchdog.yml"):
