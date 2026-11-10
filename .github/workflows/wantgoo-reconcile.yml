@@ -1,18 +1,28 @@
 name: TAIFEX WantGoo Reconciliation
 
 on:
+  schedule:
+    # Asia/Taipei 17:00 with bounded retries; Cloudflare is the primary trigger.
+    - cron: "0,10,20,30,40,50 9-10 * * 1-5"
   workflow_dispatch:
     inputs:
       report_date:
-        description: "Business date in YYYY/MM/DD."
-        required: true
+        description: "Optional business date in YYYY/MM/DD."
+        default: ""
+      trigger_reason:
+        description: "manual or external trigger reason"
+        default: "manual"
       dry_run:
         description: "Check public reference access without publishing or sending."
         type: boolean
         default: true
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: daily-taifex-push-v2
+  cancel-in-progress: false
 
 jobs:
   reconcile:
@@ -20,23 +30,58 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -r requirements.txt playwright==1.59.0
+      - run: pip install -r requirements.txt
+      - name: Freeze reference date and reject delayed overnight checks
+        id: gate
+        env:
+          REPORT_DATE: ${{ inputs.report_date }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          AUTOMATIC: ${{ github.event_name == 'schedule' || startsWith(inputs.trigger_reason, 'cloudflare-') }}
+        run: |
+          args=(--gate)
+          if [ -n "$REPORT_DATE" ]; then args+=(--date "$REPORT_DATE"); fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          if [ "$AUTOMATIC" = "true" ]; then args+=(--automatic); fi
+          python3 wantgoo_reconcile.py "${args[@]}"
       - uses: actions/cache@v4
+        if: steps.gate.outputs.run == 'true'
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-1.59.0-ubuntu-24.04-${{ runner.arch }}
-      - run: python3 -m playwright install --with-deps chromium
+      - name: Install reference browser
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          pip install playwright==1.59.0
+          python3 -m playwright install --with-deps chromium
+      - name: Configure publisher
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Check same-day WantGoo reference
+        if: steps.gate.outputs.run == 'true'
         env:
-          REPORT_DATE: ${{ inputs.report_date }}
-        run: python3 -u wantgoo_reconcile.py --date "$REPORT_DATE" --dry-run
+          REPORT_DATE: ${{ steps.gate.outputs.date }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          AUTOMATIC: ${{ github.event_name == 'schedule' || startsWith(inputs.trigger_reason, 'cloudflare-') }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          args=(--date "$REPORT_DATE")
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          if [ "$AUTOMATIC" = "true" ]; then args+=(--automatic); fi
+          python3 -u wantgoo_reconcile.py "${args[@]}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: wantgoo-reconciliation
-          path: wantgoo-artifacts/
+          path: |
+            wantgoo-artifacts/result.json
+            wantgoo-artifacts/reference.json
           if-no-files-found: warn

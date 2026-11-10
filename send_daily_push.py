@@ -418,7 +418,8 @@ def capture_report_screenshots(
                         if high_low_block.count() > 0:
                             high_low_grid = high_low_block.locator("div.grid.gap-4").first
                             if high_low_grid.count() > 0:
-                                screenshots["high_low_cards"] = high_low_grid.screenshot(type="png")
+                                cards_panel = high_low_block.locator(".high-low-cards-capture").first
+                                screenshots["high_low_cards"] = (cards_panel if cards_panel.count() else high_low_grid).screenshot(type="png")
                             summary_heading = high_low_block.locator("h5", has_text="最近 30 個營業日高低點彙整表").first
                             if summary_heading.count() > 0:
                                 summary_panel = summary_heading.locator("xpath=..").first
@@ -613,13 +614,19 @@ def send_email(report: dict[str, object], pdf_data: bytes) -> str:
 
 
 def publish_snapshot(report_date: str) -> str:
-    result = subprocess.run(
-        ["python3", "publish_snapshot.py", "--date", report_date.replace("/", "-")],
-        cwd=Path(__file__).resolve().parent,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            ["python3", "publish_snapshot.py", "--date", report_date.replace("/", "-")],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "no subprocess diagnostics")[-6000:]
+        detail = re.sub(r"https://[^/\s@]+@", "https://[redacted]@", detail)
+        detail = re.sub(r"(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)", "[redacted]", detail)
+        raise RuntimeError(f"Snapshot publication failed for {report_date}:\n{detail}") from exc
     return (result.stdout or "").strip()
 
 
@@ -1023,6 +1030,9 @@ def main() -> None:
                 time.sleep(args.retry_delay)
     if report is None:
         raise RuntimeError(f"無法建立報表：{last_reason}")
+    # A delayed full refresh must not replace an already reconciled evening revision.
+    from wantgoo_reconcile import apply_saved_reference
+    report = apply_saved_reference(report)
     ready, last_reason = report_is_ready(report, mode="minimal", expected_date=expected_date)
     if not ready:
         raise RuntimeError(f"核心表格仍未完整：{last_reason}")

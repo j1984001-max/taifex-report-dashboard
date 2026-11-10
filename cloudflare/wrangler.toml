@@ -10,5 +10,7 @@ workers_dev = true
 crons = [
   "1,11,21,31,41,51 7 * * 1-5",
   "1,21,41 8 * * 1-5",
-  "11,41 9 * * 1-5"
+  "11,41 9 * * 1-5",
+  # 17:00 Taipei, then retry incomplete reference checks until 18:50.
+  "0,10,20,30,40,50 9-10 * * 1-5"
 ]

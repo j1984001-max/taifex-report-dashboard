@@ -996,11 +996,20 @@
             return `<span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-black ${klass}">${escapeHtml(value)}</span>`;
         }
 
-        function renderHighLowAlignmentSummaryTable(rows) {
+        function renderReferenceStamp(audit, date) {
+            const verified = audit && ["matched", "corrected"].includes(audit.status);
+            const label = verified
+                ? `${audit.sourceDate} 當日已核對玩股網 ${formatNumber(audit.checkedCount)} 項 · ${audit.checkedAt} · 其餘為官方資料`
+                : `${date || ""} 期交所官方速報 · 玩股網${audit ? "等待完整來源" : "尚未核對"}`;
+            return `<div class="text-xs leading-6 text-slate-500 dark:text-slate-400 mb-2">${escapeHtml(label)}</div>`;
+        }
+
+        function renderHighLowAlignmentSummaryTable(rows, audit = null) {
             if (!rows || !rows.length) return "";
             return `
                 <div class="mt-6">
                     <h5 class="font-black mb-3">最近 30 個營業日高低點彙整表</h5>
+                    ${renderReferenceStamp(audit, rows[0].date)}
                     <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
                         <table class="min-w-[1100px] text-sm">
                             <thead>
@@ -1042,7 +1051,7 @@
             `;
         }
 
-        function renderWeeklyQuickView(view) {
+        function renderWeeklyQuickView(view, audit = null) {
             if (!view || !view.groups || !view.groups.length) return "";
             return `
                 <div id="weeklyQuickView" class="weekly-quick-view">
@@ -1050,6 +1059,7 @@
                         <h4>週契約特定法人速覽</h4>
                         <div class="font-bold">${escapeHtml(view.date)}</div>
                     </header>
+                    ${renderReferenceStamp(audit, view.date)}
                     <div class="weekly-quick-meta">週基準日 ${escapeHtml(view.baselineDate)} 收盤 · 單位：口</div>
                     <div class="weekly-quick-groups">
                         ${view.groups.map(group => `
@@ -1075,11 +1085,13 @@
             `;
         }
 
-        function renderHighLowAlignmentTable(rows, summaryRows = []) {
+        function renderHighLowAlignmentTable(rows, summaryRows = [], audit = null) {
             if (!rows || !rows.length) return "";
             return `
                 <div class="mt-5">
                     <h4 class="font-black mb-2">期貨高低點 x 前五大 / 前十大特定法人單日增減對照</h4>
+                    <div class="high-low-cards-capture">
+                    ${renderReferenceStamp(audit, rows[0].date)}
                     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                         ${rows.map((row) => `
                             <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
@@ -1115,8 +1127,9 @@
                             </div>
                         `).join("")}
                     </div>
+                    </div>
                     <div class="text-slate-500 dark:text-slate-400 text-sm mt-3">口徑：高點只看期貨空方單日，並搭配買權賣方、賣權買方；低點只看期貨多方單日，並搭配買權買方、賣權賣方。期貨特定法人補列前五大與前十大，並顯示自前次月結算日後累積；外資期貨同樣顯示單日與累積。</div>
-                    ${renderHighLowAlignmentSummaryTable(summaryRows)}
+                    ${renderHighLowAlignmentSummaryTable(summaryRows, audit)}
                 </div>
             `;
         }
@@ -1137,7 +1150,7 @@
             `;
         }
 
-        function renderChangeOverview(section) {
+        function renderChangeOverview(section, meta = {}) {
             const futuresCards = (section.items || []).map((item) => `
                 <div class="meta-pill">
                     <div class="font-black mb-2">${escapeHtml(item.product)}</div>
@@ -1201,8 +1214,8 @@
                         </ul>
                     </div>
                 ` : ""}
-                ${renderWeeklyQuickView(section.weeklyQuickView)}
-                ${section.highLowAlignmentRows && section.highLowAlignmentRows.length ? renderHighLowAlignmentTable(section.highLowAlignmentRows, section.highLowAlignmentSummaryRows || []) : ""}
+                ${renderWeeklyQuickView(section.weeklyQuickView, meta.wantgooReconciliation)}
+                ${section.highLowAlignmentRows && section.highLowAlignmentRows.length ? renderHighLowAlignmentTable(section.highLowAlignmentRows, section.highLowAlignmentSummaryRows || [], meta.wantgooReconciliation) : ""}
                 ${section.futuresOverviewHighlights && section.futuresOverviewHighlights.length ? renderBullets("期貨差異變動速覽", section.futuresOverviewHighlights) : ""}
                 ${section.largeTraderOverviewHighlights && section.largeTraderOverviewHighlights.length ? renderBullets("大額交易人前五大 / 前十大", section.largeTraderOverviewHighlights) : ""}
                 ${section.optionOverviewHighlights && section.optionOverviewHighlights.length ? renderBullets("選擇權分契約速覽", section.optionOverviewHighlights) : ""}
@@ -2018,6 +2031,19 @@
             });
         }
 
+        function renderReferenceStatus(meta) {
+            const audit = meta.wantgooReconciliation;
+            if (!audit) return `<div id="referenceStatus" class="text-sm leading-7 text-slate-500 dark:text-slate-400">期交所官方速報 · 玩股網盤後核對：尚未完成</div>`;
+            if (!["matched", "corrected"].includes(audit.status)) {
+                return `<div id="referenceStatus" class="text-sm leading-7 text-amber-700 dark:text-amber-300">${escapeHtml(meta.date)} 玩股網核對：等待完整來源資料 · 保留官方數據</div>`;
+            }
+            const status = audit.status === "corrected" ? `已更正 ${formatNumber(audit.changedCount)} 項` : "數值一致";
+            return `<div id="referenceStatus" class="text-sm leading-7 border-l-2 border-emerald-600 pl-3 text-emerald-800 dark:text-emerald-300">
+                玩股網盤後核對：${escapeHtml(status)} · 來源日 ${escapeHtml(audit.sourceDate)} · 已核對 ${formatNumber(audit.checkedCount)} 項
+                <span class="text-slate-500 dark:text-slate-400">${escapeHtml(audit.checkedAt)}${audit.skippedCount ? ` · 未揭露 ${formatNumber(audit.skippedCount)} 項` : ""}</span>
+            </div>`;
+        }
+
         function renderReport(report) {
             const tables = report.tables;
             const marketHistory = (report.meta && report.meta.txSettlementHistory) ? report.meta.txSettlementHistory : {};
@@ -2029,7 +2055,8 @@
                 window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}`);
             }
             reportRoot.innerHTML = [
-                renderChangeOverview(report.changeOverview),
+                renderReferenceStatus(report.meta),
+                renderChangeOverview(report.changeOverview, report.meta),
                 renderImportantDates(report.importantDates),
                 renderTableA(tables.A),
                 renderContractTable(tables.B, false),

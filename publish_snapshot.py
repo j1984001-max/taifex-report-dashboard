@@ -46,6 +46,7 @@ def main() -> None:
             ROOT / "snapshots" / f"{args.date}.json",
             ROOT / "snapshots" / f"{args.date}.pdf",
             ROOT / "snapshots" / f"{args.date}.delivery.json",
+            ROOT / "snapshots" / f"{args.date}.wantgoo.json",
         ]
         targets = [str(path.relative_to(ROOT)) for path in candidates if path.exists()]
     else:

@@ -9,6 +9,7 @@ on:
       - "wantgoo_reconcile.py"
       - "index.html"
       - "tests/**"
+      - "cloudflare/**"
       - ".github/scripts/**"
       - ".github/workflows/high-low-*.yml"
       - ".github/workflows/daily-push*.yml"
@@ -44,6 +45,8 @@ jobs:
         run: pip install -r requirements-test.txt
       - name: Verify reference values and delivery safeguards
         run: python3 -m unittest discover -s tests -v
+      - name: Verify independent 17:00 trigger routing
+        run: node --test tests/test_reference_trigger.mjs
       - name: Cache Playwright browsers
         if: inputs.live == true
         uses: actions/cache@v4

@@ -6,6 +6,7 @@ __pycache__/
 *.pdf
 .cache/
 .wrangler/
+wantgoo-artifacts/
 !snapshots/*.pdf
 
 .openclaw/

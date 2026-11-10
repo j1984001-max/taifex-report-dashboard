@@ -1,6 +1,8 @@
 const OWNER = "j1984001-max";
 const REPO = "taifex-report-dashboard";
 const WORKFLOW_ID = "high-low-fast-push.yml";
+const REFERENCE_WORKFLOW_ID = "wantgoo-reconcile.yml";
+const REFERENCE_CRON = "0,10,20,30,40,50 9-10 * * 1-5";
 const HOLIDAYS = new Set([
   "2026/01/01", "2026/02/16", "2026/02/17", "2026/02/18", "2026/02/19",
   "2026/02/20", "2026/02/27", "2026/04/03", "2026/04/06", "2026/05/01",
@@ -65,12 +67,12 @@ async function deliveryIsComplete(expectedDate) {
   );
 }
 
-async function fastPushIsRunning(env) {
+async function fastPushIsRunning(env, workflowId = WORKFLOW_ID) {
   if (!env.GITHUB_TOKEN) {
     return false;
   }
   const runs = await fetchJson(
-    `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_ID}/runs?branch=main&per_page=10`,
+    `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${workflowId}/runs?branch=main&per_page=10`,
     {
       headers: {
         "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
@@ -83,13 +85,13 @@ async function fastPushIsRunning(env) {
   )));
 }
 
-async function dispatchHighLowWorkflow(env, reason) {
+async function dispatchHighLowWorkflow(env, reason, workflowId = WORKFLOW_ID, extraInputs = {}) {
   if (!env.GITHUB_TOKEN) {
     return new Response("Missing GITHUB_TOKEN secret", { status: 500 });
   }
 
   const response = await fetch(
-    `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_ID}/dispatches`,
+    `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${workflowId}/dispatches`,
     {
       method: "POST",
       headers: {
@@ -103,6 +105,7 @@ async function dispatchHighLowWorkflow(env, reason) {
         ref: "main",
         inputs: {
           trigger_reason: reason,
+          ...extraInputs,
         },
       }),
     },
@@ -115,7 +118,31 @@ async function dispatchHighLowWorkflow(env, reason) {
     });
   }
 
-  return new Response(`Dispatched ${WORKFLOW_ID}: ${reason}`, { status: 202 });
+  return new Response(`Dispatched ${workflowId}: ${reason}`, { status: 202 });
+}
+
+export function referenceAuditComplete(audit, date) {
+  const required = audit?.status === "matched" ? ["text"] : ["text", "high_low_cards", "high_low_summary", "weekly_quick_view"];
+  const items = audit?.notification?.items || {};
+  return Boolean(audit?.date === date && ["matched", "corrected"].includes(audit.status)
+    && audit?.notification?.complete === true
+    && required.every((key) => Number.isSafeInteger(items[key]) && items[key] > 0));
+}
+
+export async function checkReferenceAndDispatch(env, now = new Date()) {
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(now).replaceAll("-", "/");
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", hour: "2-digit", hour12: false }).format(now));
+  if (date !== taipeiBusinessDate(now) || hour < 17 || hour >= 19) {
+    return new Response("Outside reference check window", { status: 200 });
+  }
+  const audit = await fetchJson(`https://raw.githubusercontent.com/${OWNER}/${REPO}/main/snapshots/${date.replaceAll("/", "-")}.wantgoo.json`);
+  if (referenceAuditComplete(audit, date)) {
+    return new Response(`Already reconciled: ${date}`, { status: 200 });
+  }
+  if (await fastPushIsRunning(env, REFERENCE_WORKFLOW_ID)) {
+    return new Response(`Reference check already running: ${date}`, { status: 200 });
+  }
+  return dispatchHighLowWorkflow(env, `cloudflare-wantgoo-cron:${date}`, REFERENCE_WORKFLOW_ID, { report_date: date, dry_run: "false" });
 }
 
 async function checkAndDispatch(env, reason) {
@@ -131,7 +158,9 @@ async function checkAndDispatch(env, reason) {
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(checkAndDispatch(env, `cloudflare-cron:${event.cron}`));
+    ctx.waitUntil(event.cron === REFERENCE_CRON
+      ? checkReferenceAndDispatch(env, new Date(event.scheduledTime))
+      : checkAndDispatch(env, `cloudflare-cron:${event.cron}`));
   },
 
   async fetch(request, env) {
@@ -142,7 +171,7 @@ export default {
       const running = await fastPushIsRunning(env);
       return Response.json({ expectedDate, delivered, running });
     }
-    if (url.pathname !== "/trigger") {
+    if (!["/trigger", "/trigger-reference"].includes(url.pathname)) {
       return new Response("Not found", { status: 404 });
     }
     if (!env.TRIGGER_SECRET) {
@@ -151,6 +180,6 @@ export default {
     if (url.searchParams.get("secret") !== env.TRIGGER_SECRET) {
       return new Response("Forbidden", { status: 403 });
     }
-    return checkAndDispatch(env, "manual-http-trigger");
+    return url.pathname === "/trigger-reference" ? checkReferenceAndDispatch(env) : checkAndDispatch(env, "manual-http-trigger");
   },
 };
