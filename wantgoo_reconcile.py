@@ -130,7 +130,7 @@ def parse_option_institutions(html: str, expected_date: str, institution: str) -
 
 
 def collect_reference(report: dict, output: Path) -> dict:
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import Error as BrowserError, sync_playwright
 
     expected_date = report["meta"]["date"]
     monthly = report["tables"]["D"]["monthlyContract"]
@@ -145,7 +145,12 @@ def collect_reference(report: dict, output: Path) -> dict:
             def loaded_html(key: str) -> str:
                 deadline = time.monotonic() + 35
                 while time.monotonic() < deadline:
-                    html = page.content()
+                    try:
+                        html = page.content()
+                    except BrowserError:
+                        # An ordinary challenge/redirect can still be navigating here.
+                        page.wait_for_timeout(500)
+                        continue
                     if any(row and row[0].replace("-", "/") == expected_date
                            for table in server.parse_tables(html) for row in table):
                         (output / f"{key}.html").write_text(html, encoding="utf-8")

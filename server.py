@@ -3491,15 +3491,18 @@ def fetch_previous_large_trader_option_business_day(report_date: str, monthly_co
 
 
 def parse_oi_change(table: list[list[str]], fallback_date: str | None = None) -> dict[str, Any]:
-    row = table[1]
-    if any(cell == "無資料" for cell in row[:5]):
+    row = table[1] if len(table) > 1 else []
+    stale_date = bool(fallback_date and row and row[0] != fallback_date)
+    if len(row) < 5 or stale_date or any(cell == "無資料" for cell in row[:5]):
         return {
             "date": fallback_date or "",
+            "sourceDate": row[0] if row else None,
             "currentOi": None,
             "previousDate": None,
             "previousOi": None,
             "change": None,
             "missing": True,
+            "reason": "stale_official_oi_date" if stale_date else "official_oi_not_published",
         }
     return {
         "date": row[0],
