@@ -11,7 +11,7 @@
   "weeklyTelegramMessageId": 4322,
   "weeklyTelegramDeliveredAt": "2026-11-10T15:50:19+08:00",
   "date": "2026/11/10",
-  "updatedAt": "2026-11-10T23:26:56+08:00",
+  "updatedAt": "2026-11-10T23:27:02+08:00",
   "manualResends": [
     {
       "date": "2026/11/10",
@@ -20,5 +20,7 @@
       "deliveredAt": "2026-11-10T23:08:26+08:00"
     }
   ],
-  "detailTelegram": true
+  "detailTelegram": true,
+  "email": true,
+  "complete": true
 }
