@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from server import PUBLIC_BASE_URL, TW_TZ, latest_business_day
+from server import PUBLIC_BASE_URL, TW_TZ, is_business_day, latest_business_day
 from send_daily_push import high_low_delivery_complete, load_delivery_state, report_is_ready, weekly_delivery_complete
 
 
@@ -26,9 +26,17 @@ def latest_released_business_day(now: datetime | None = None) -> str:
     return latest_business_day(current)
 
 
-def resolve_target() -> dict:
-    report_date = latest_released_business_day()
+def resolve_target(report_date: str | None = None, *, automatic: bool = False, now: datetime | None = None) -> dict:
+    current = now or datetime.now(TW_TZ)
+    current = current.replace(tzinfo=TW_TZ) if current.tzinfo is None else current.astimezone(TW_TZ)
+    report_date = report_date or latest_released_business_day(current)
+    datetime.strptime(report_date, "%Y/%m/%d")
+    run = not automatic or (is_business_day(current) and 15 <= current.hour < 19
+                            and report_date == current.strftime("%Y/%m/%d"))
     delivery = load_delivery_state(report_date)
+    reason = "ok" if run else "outside_same_day_delivery_window"
+    if automatic and run and not (delivery.get("date") == report_date and high_low_delivery_complete(delivery)):
+        run, reason = False, "awaiting_high_low_delivery"
     complete = delivery.get("date") == report_date and delivery.get("complete") is True and high_low_delivery_complete(delivery)
     if complete:
         try:
@@ -43,7 +51,9 @@ def resolve_target() -> dict:
         with Path(output_path).open("a", encoding="utf-8") as output:
             output.write(f"date={report_date}\n")
             output.write(f"complete={'true' if complete else 'false'}\n")
-    return {"date": report_date, "alreadyComplete": bool(complete)}
+            output.write(f"run={'true' if run else 'false'}\n")
+    return {"date": report_date, "alreadyComplete": bool(complete), "run": bool(run),
+            "reason": reason}
 
 
 def fetch_json(url: str) -> dict:
@@ -107,10 +117,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Resolve and verify one frozen TAIFEX daily delivery target.")
     parser.add_argument("command", choices=("target", "verify"))
     parser.add_argument("--date")
+    parser.add_argument("--automatic", action="store_true")
     args = parser.parse_args()
     if args.command == "verify" and not args.date:
         parser.error("verify requires the date resolved before the push")
-    result = resolve_target() if args.command == "target" else verify_published(args.date)
+    result = resolve_target(args.date, automatic=args.automatic) if args.command == "target" else verify_published(args.date)
     print(json.dumps(result, ensure_ascii=False), flush=True)
 
 

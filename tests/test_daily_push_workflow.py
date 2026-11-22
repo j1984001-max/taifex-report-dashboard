@@ -79,6 +79,26 @@ class DailyPushWorkflowTest(unittest.TestCase):
         self.assertEqual(result["date"], "2026/10/29")
         self.assertEqual(result["reason"], "daily_delivery_already_complete")
 
+    def test_overnight_and_weekend_automatic_jobs_do_not_send(self):
+        for now in ("2026-11-20T23:53:00+08:00", "2026-11-21T01:00:00+08:00", "2026-11-22T16:00:00+08:00"):
+            with self.subTest(now=now), mock.patch.object(workflow, "load_delivery_state", return_value={}):
+                target = workflow.resolve_target(automatic=True, now=datetime.fromisoformat(now))
+                self.assertFalse(target["run"])
+                self.assertEqual(target["reason"], "outside_same_day_delivery_window")
+
+    def test_fast_success_followup_and_manual_historical_recovery_remain_available(self):
+        with mock.patch.object(workflow, "load_delivery_state", return_value={**self.delivery, "date": "2026/11/20", "complete": False}):
+            target = workflow.resolve_target(automatic=True, now=datetime.fromisoformat("2026-11-20T15:54:00+08:00"))
+            self.assertEqual((target["date"], target["run"]), ("2026/11/20", True))
+            manual = workflow.resolve_target("2026/11/18", now=datetime.fromisoformat("2026-11-22T20:00:00+08:00"))
+            self.assertEqual((manual["date"], manual["run"]), ("2026/11/18", True))
+
+    def test_automatic_full_push_waits_for_priority_bundle(self):
+        with mock.patch.object(workflow, "load_delivery_state", return_value={}):
+            target = workflow.resolve_target(automatic=True, now=datetime.fromisoformat("2026-11-20T15:03:00+08:00"))
+            self.assertFalse(target["run"])
+            self.assertEqual(target["reason"], "awaiting_high_low_delivery")
+
 
 if __name__ == "__main__":
     unittest.main()

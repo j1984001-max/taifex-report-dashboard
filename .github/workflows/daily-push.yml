@@ -8,6 +8,14 @@ on:
     # Asia/Taipei backup wakeups: 16:07, 16:22, 16:37, 16:52.
     - cron: "7,22,37,52 8 * * 1-5"
   workflow_dispatch:
+    inputs:
+      report_date:
+        description: "Optional explicit business date for manual recovery."
+        default: ""
+  workflow_run:
+    workflows: ["TAIFEX High-Low Fast Push"]
+    types: [completed]
+    branches: [main]
 
 concurrency:
   group: daily-taifex-push-v2
@@ -15,6 +23,7 @@ concurrency:
 
 jobs:
   daily-push:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     # Keep the runner compatible with the pinned Playwright browser dependencies.
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -38,30 +47,37 @@ jobs:
 
       - name: Resolve the released report date once
         id: target
-        run: python3 .github/scripts/daily_push_workflow.py target
+        env:
+          AUTOMATIC: ${{ github.event_name != 'workflow_dispatch' }}
+          REPORT_DATE: ${{ inputs.report_date }}
+        run: |
+          args=(target)
+          if [ "$AUTOMATIC" = "true" ]; then args+=(--automatic); fi
+          if [ -n "$REPORT_DATE" ]; then args+=(--date "$REPORT_DATE"); fi
+          python3 .github/scripts/daily_push_workflow.py "${args[@]}"
 
       - name: Cache Playwright browsers
-        if: steps.target.outputs.complete != 'true'
+        if: steps.target.outputs.run == 'true' && steps.target.outputs.complete != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-1.59.0-ubuntu-24.04-${{ runner.arch }}
 
       - name: Install screenshot dependencies
-        if: steps.target.outputs.complete != 'true'
+        if: steps.target.outputs.run == 'true' && steps.target.outputs.complete != 'true'
         run: |
           pip install playwright==1.59.0
           python3 -m playwright install --with-deps chromium
 
       - name: Configure git author
-        if: steps.target.outputs.complete != 'true'
+        if: steps.target.outputs.run == 'true' && steps.target.outputs.complete != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run daily push
         id: push
-        if: steps.target.outputs.complete != 'true'
+        if: steps.target.outputs.run == 'true' && steps.target.outputs.complete != 'true'
         env:
           TARGET_REPORT_DATE: ${{ steps.target.outputs.date }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -81,7 +97,7 @@ jobs:
 
       - name: Verify published snapshot
         id: verify
-        if: success()
+        if: success() && steps.target.outputs.run == 'true'
         env:
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
           TARGET_REPORT_DATE: ${{ steps.target.outputs.date }}

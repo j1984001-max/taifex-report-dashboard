@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: daily-taifex-push-watchdog
-  cancel-in-progress: true
+  group: daily-taifex-push-v2
+  cancel-in-progress: false
 
 jobs:
   watchdog:
@@ -36,30 +36,35 @@ jobs:
 
       - name: Resolve the released report date once
         id: target
-        run: python3 .github/scripts/daily_push_workflow.py target
+        env:
+          AUTOMATIC: ${{ github.event_name == 'schedule' }}
+        run: |
+          args=(target)
+          if [ "$AUTOMATIC" = "true" ]; then args+=(--automatic); fi
+          python3 .github/scripts/daily_push_workflow.py "${args[@]}"
 
       - name: Cache Playwright browsers
-        if: steps.target.outputs.complete != 'true'
+        if: steps.target.outputs.run == 'true' && steps.target.outputs.complete != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-1.59.0-ubuntu-24.04-${{ runner.arch }}
 
       - name: Install screenshot dependencies
-        if: steps.target.outputs.complete != 'true'
+        if: steps.target.outputs.run == 'true' && steps.target.outputs.complete != 'true'
         run: |
           pip install playwright==1.59.0
           python3 -m playwright install --with-deps chromium
 
       - name: Configure git author
-        if: steps.target.outputs.complete != 'true'
+        if: steps.target.outputs.run == 'true' && steps.target.outputs.complete != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run watchdog push
         id: push
-        if: steps.target.outputs.complete != 'true'
+        if: steps.target.outputs.run == 'true' && steps.target.outputs.complete != 'true'
         env:
           TARGET_REPORT_DATE: ${{ steps.target.outputs.date }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -79,7 +84,7 @@ jobs:
 
       - name: Verify published snapshot
         id: verify
-        if: success()
+        if: success() && steps.target.outputs.run == 'true'
         env:
           PUBLIC_BASE_URL: https://taifex-report-dashboard.onrender.com
           TARGET_REPORT_DATE: ${{ steps.target.outputs.date }}

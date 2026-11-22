@@ -33,7 +33,18 @@ class ScreenshotWorkflowTest(unittest.TestCase):
                 steps = {step.get("name"): step for step in job.get("steps", [])}
                 for step_name in ("Cache Playwright browsers", "Install screenshot dependencies"):
                     with self.subTest(workflow=name, step=step_name):
-                        self.assertEqual(steps[step_name]["if"], "steps.target.outputs.complete != 'true'")
+                        self.assertEqual(steps[step_name]["if"], "steps.target.outputs.run == 'true' && steps.target.outputs.complete != 'true'")
+
+    def test_full_report_follows_fast_push_and_watchdog_cannot_send_concurrently(self):
+        workflows = [yaml.safe_load((ROOT / ".github/workflows" / name).read_text(encoding="utf-8"))
+                     for name in ("daily-push.yml", "daily-push-watchdog.yml")]
+        trigger = workflows[0].get("on", workflows[0].get(True))
+        self.assertEqual(trigger["workflow_run"]["workflows"], ["TAIFEX High-Low Fast Push"])
+        self.assertEqual(workflows[0]["concurrency"], workflows[1]["concurrency"])
+        for workflow in workflows:
+            steps = next(iter(workflow["jobs"].values()))["steps"]
+            verifier = next(step for step in steps if step.get("name") == "Verify published snapshot")
+            self.assertIn("steps.target.outputs.run == 'true'", verifier["if"])
 
 
 if __name__ == "__main__":

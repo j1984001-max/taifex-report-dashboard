@@ -3240,6 +3240,9 @@ def parse_tx_reference(table: list[list[str]]) -> dict[str, Any]:
         if len(row) < 17:
             continue
         if row[0] == "TX" and re.fullmatch(r"\d{6}", row[1]):
+            # The expiring row remains on settlement day, without a daily settlement.
+            if row[11].strip() in {"", "-", "--"} or to_int(row[11]) <= 0:
+                continue
             return {
                 "contract": row[1],
                 "open": to_int(row[2]),

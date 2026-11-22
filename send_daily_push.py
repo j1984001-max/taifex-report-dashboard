@@ -36,6 +36,7 @@ from server import (
     snapshot_paths,
     to_int,
     cycle_start_thursday,
+    is_rollover_settlement_day,
 )
 
 
@@ -157,6 +158,51 @@ def send_weekly_screenshot(report: dict, state: dict, token: str, chat_id: str, 
     save_delivery_state(report_date, state)
     publish_snapshot(report_date)
     return result
+
+
+def send_high_low_bundle(report: dict, state: dict, token: str, chat_id: str, messages: list[str], *, force: bool = False) -> list[dict]:
+    if high_low_delivery_complete(state) and not force:
+        return []
+    date = report["meta"]["date"]
+    shots = capture_report_screenshots(date, report=report, include_high_low=True, include_detail_sections=False)
+    primary = shots.get("high_low_cards") or shots.get("high_low")
+    if not primary or not shots.get("high_low_summary"):
+        raise RuntimeError("高低點圖卡／彙整表截圖失敗，不寫入送達標記")
+    saved = {} if force else state.get("highLowTelegramItems", {})
+    items = {key: value for key, value in saved.items() if type(value) is int and value > 0}
+    keys = [f"text_{index}" for index in range(len(messages))] + ["cards", "summary"]
+    results = []
+
+    def record(key: str, response: dict) -> None:
+        message_id = response.get("result", {}).get("message_id")
+        if type(message_id) is not int or message_id <= 0:
+            raise RuntimeError(f"高低點 Telegram 回覆無有效送達編號：{key}")
+        items[key] = message_id
+        state["highLowTelegramItems"] = items
+        state["highLowTelegram"] = False
+        save_delivery_state(date, state)
+        publish_snapshot(date)
+        results.append(response)
+
+    for index, message in enumerate(messages):
+        key = f"text_{index}"
+        if key not in items:
+            record(key, send_telegram_message(token, chat_id, message))
+    if "cards" not in items:
+        record("cards", send_telegram_document(token, chat_id, caption=f"高低點對照圖卡（{date}）",
+                                                filename=f"high-low-cards-{date.replace('/', '-')}.png", data=primary))
+    if "summary" not in items:
+        record("summary", send_telegram_document(token, chat_id, caption=f"高低點 30 日彙整表（{date}）",
+                                                  filename=f"high-low-summary-{date.replace('/', '-')}.png", data=shots["high_low_summary"]))
+    message_ids = [items[key] for key in keys]
+    if len(message_ids) < MIN_HIGH_LOW_TELEGRAM_ITEMS:
+        raise RuntimeError("高低點傳送項目未齊，不寫入完成標記")
+    state.update(highLowTelegram=True, highLowTelegramItemCount=len(message_ids),
+                 highLowTelegramMessageIds=message_ids,
+                 highLowTelegramDeliveredAt=datetime.now(TW_TZ).isoformat(timespec="seconds"))
+    save_delivery_state(date, state)
+    publish_snapshot(date)
+    return results
 
 
 def parse_dotenv(path: Path) -> dict[str, str]:
@@ -550,6 +596,9 @@ def build_high_low_focus_overview(report: dict[str, object], *, days: int = 3) -
         f"{meta['date']} 高低點對照速覽",
         f"完整網頁：{meta['reportUrl']}",
     ]
+    current = next((row for row in overview.get("highLowAlignmentRows", []) if row.get("date") == meta["date"]), {})
+    if is_rollover_settlement_day(meta["date"], current.get("largeTraderContract")):
+        lines.append(f"換月基準 {current['largeTraderContract']}：特定法人增減以 0 起算，非當日無交易。")
     lines.extend(["", "三個營業日內重要日期"])
     if overview.get("urgentHighlights"):
         lines.extend(f"- {item}" for item in overview["urgentHighlights"])
@@ -998,7 +1047,7 @@ def main() -> None:
                 try:
                     build_started = time.monotonic()
                     report, _ = cached_report(
-                        requested_date,
+                        expected_date,
                         report_url,
                         force_refresh=True,
                         fast_build=args.snapshot_only,
@@ -1061,73 +1110,8 @@ def main() -> None:
     send_full_telegram = os.environ.get("SEND_FULL_TELEGRAM", "0") == "1"
     full_messages = split_telegram_text(decorate_telegram_text(report["telegram"])) if send_full_telegram else []
 
-    results = []
-    if args.force_high_low_resend or not high_low_delivery_complete(delivery_state):
-        high_low_shots = capture_report_screenshots(
-            report["meta"]["date"],
-            report=report,
-            include_high_low=True,
-            include_detail_sections=False,
-        )
-        primary_high_low = high_low_shots.get("high_low_cards") or high_low_shots.get("high_low")
-        if not primary_high_low:
-            raise RuntimeError("高低點圖卡截圖失敗，不寫入送達標記")
-        if not high_low_shots.get("high_low_summary"):
-            raise RuntimeError("高低點 30 日彙整表截圖失敗，不寫入送達標記")
-
-        for message in high_low_messages:
-            results.append(send_telegram_message(token, args.chat_id, message))
-
-        if high_low_shots.get("high_low_cards"):
-            results.append(
-                send_telegram_document(
-                    token,
-                    args.chat_id,
-                    caption=f"高低點對照圖卡（{report['meta']['date']}）",
-                    filename=f"high-low-cards-{report['meta']['date'].replace('/', '-')}.png",
-                    data=high_low_shots["high_low_cards"],
-                )
-            )
-        else:
-            results.append(
-                send_telegram_document(
-                    token,
-                    args.chat_id,
-                    caption=f"高低點對照圖表（{report['meta']['date']}）",
-                    filename=f"high-low-{report['meta']['date'].replace('/', '-')}.png",
-                    data=high_low_shots["high_low"],
-                )
-            )
-        if high_low_shots.get("high_low_summary"):
-            results.append(
-                send_telegram_document(
-                    token,
-                    args.chat_id,
-                    caption=f"高低點 30 日彙整表（{report['meta']['date']}）",
-                    filename=f"high-low-summary-{report['meta']['date'].replace('/', '-')}.png",
-                    data=high_low_shots["high_low_summary"],
-                )
-            )
-        high_low_message_ids = [
-            item.get("result", {}).get("message_id")
-            for item in results
-        ]
-        expected_high_low_items = len(high_low_messages) + 2
-        if (
-            len(high_low_message_ids) != expected_high_low_items
-            or len(high_low_message_ids) < MIN_HIGH_LOW_TELEGRAM_ITEMS
-            or any(type(message_id) is not int or message_id <= 0 for message_id in high_low_message_ids)
-        ):
-            raise RuntimeError(
-                "高低點 Telegram 回覆不完整，不寫入送達標記："
-                f"expected={expected_high_low_items}, ids={high_low_message_ids}"
-            )
-        delivery_state["highLowTelegram"] = True
-        delivery_state["highLowTelegramItemCount"] = len(high_low_message_ids)
-        delivery_state["highLowTelegramMessageIds"] = high_low_message_ids
-        delivery_state["highLowTelegramDeliveredAt"] = datetime.now(TW_TZ).isoformat(timespec="seconds")
-        save_delivery_state(report["meta"]["date"], delivery_state)
-        publish_snapshot(report["meta"]["date"])
+    results = send_high_low_bundle(report, delivery_state, token, args.chat_id, high_low_messages,
+                                    force=args.force_high_low_resend)
 
     # The original high-low bundle is persisted before the independent weekly send.
     weekly_result = send_weekly_screenshot(report, delivery_state, token, args.chat_id)

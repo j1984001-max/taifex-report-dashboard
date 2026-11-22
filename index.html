@@ -1096,6 +1096,8 @@
                         ${rows.map((row) => `
                             <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
                                 <div class="font-black text-lg mb-3">${escapeHtml(row.date)}</div>
+                                ${row.cycleStartDate === row.date && row.largeTraderContract > row.date.slice(0, 7).replace("/", "")
+                                    ? `<div class="text-sm leading-6 mb-3 text-slate-600 dark:text-slate-300">${escapeHtml(row.largeTraderContract)} 換月基準：特定法人增減以 0 起算，非當日無交易。</div>` : ""}
                                 <div class="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900 dark:bg-rose-950/20">
                                     <div class="font-bold text-rose-700 dark:text-rose-300 mb-2">高點觀察</div>
                                     <div class="text-sm leading-7">期貨空方合計單日：<span class="${signedClass(row.highPointFuturesShortTotal)}">${formatSigned(row.highPointFuturesShortTotal)}</span></div>

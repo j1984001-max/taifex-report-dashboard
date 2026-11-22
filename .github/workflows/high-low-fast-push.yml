@@ -46,6 +46,7 @@ jobs:
         id: delivery
         env:
           TARGET_REPORT_DATE: ${{ inputs.report_date }}
+          AUTOMATIC: ${{ github.event_name != 'workflow_dispatch' || startsWith(inputs.trigger_reason, 'cloudflare-') || startsWith(inputs.trigger_reason, 'github-standby') || inputs.trigger_reason == 'high-low-watchdog' }}
         run: |
           python3 - <<'PY'
           import json
@@ -67,6 +68,15 @@ jobs:
           while current.weekday() >= 5 or current.strftime("%Y/%m/%d") in holidays:
               current -= timedelta(days=1)
           expected = requested or current.strftime("%Y/%m/%d")
+          wall_clock = datetime.now(ZoneInfo("Asia/Taipei"))
+          if os.environ.get("AUTOMATIC") == "true" and (
+              current.date() != wall_clock.date() or not 15 <= wall_clock.hour < 19
+              or expected != wall_clock.strftime("%Y/%m/%d")
+          ):
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write(f"done=true\ndate={expected}\n")
+              print(json.dumps({"skipped": True, "reason": "outside_same_day_delivery_window", "date": expected}))
+              raise SystemExit(0)
           slug = expected.replace("/", "-")
           delivery = None
 
@@ -144,11 +154,7 @@ jobs:
           REQUEST_RETRY_BASE_SECONDS: "2"
         run: |
           set -o pipefail
-          date_args=()
-          if [ -n "${{ inputs.report_date }}" ]; then
-            date_args=(--date "${{ inputs.report_date }}")
-          fi
-          python3 -u send_daily_push.py "${date_args[@]}" --snapshot-only --max-retries 2 --retry-delay 5 2>&1 | tee high-low-snapshot-result.json
+          python3 -u send_daily_push.py --date "${{ steps.delivery.outputs.date }}" --snapshot-only --max-retries 2 --retry-delay 5 2>&1 | tee high-low-snapshot-result.json
 
       - name: Cache Playwright browsers
         if: steps.delivery.outputs.done != 'true' && steps.source.outputs.ready == 'true'
@@ -177,16 +183,12 @@ jobs:
           REQUEST_MAX_RETRIES: "0"
         run: |
           set -o pipefail
-          date_args=()
-          if [ -n "${{ inputs.report_date }}" ]; then
-            date_args=(--date "${{ inputs.report_date }}")
-          fi
-          python3 send_daily_push.py "${date_args[@]}" --high-low-only --max-retries 0 --retry-delay 20 2>&1 | tee high-low-push-result.json
+          python3 send_daily_push.py --date "${{ steps.delivery.outputs.date }}" --high-low-only --max-retries 0 --retry-delay 20 2>&1 | tee high-low-push-result.json
 
       - name: Verify high-low delivery
         if: success() && steps.delivery.outputs.done != 'true' && steps.source.outputs.ready == 'true'
         env:
-          TARGET_REPORT_DATE: ${{ inputs.report_date }}
+          TARGET_REPORT_DATE: ${{ steps.delivery.outputs.date }}
         run: |
           python3 - <<'PY'
           import base64
