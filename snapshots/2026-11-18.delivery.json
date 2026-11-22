@@ -4,7 +4,14 @@
     "cards": 4414,
     "summary": 4415
   },
-  "highLowTelegram": false,
+  "highLowTelegram": true,
+  "highLowTelegramItemCount": 3,
+  "highLowTelegramMessageIds": [
+    4413,
+    4414,
+    4415
+  ],
+  "highLowTelegramDeliveredAt": "2026-11-22T19:37:11+08:00",
   "date": "2026/11/18",
-  "updatedAt": "2026-11-22T19:37:09+08:00"
+  "updatedAt": "2026-11-22T19:37:11+08:00"
 }
