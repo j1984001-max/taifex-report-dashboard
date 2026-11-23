@@ -1,8 +1,9 @@
 {
   "highLowTelegramItems": {
-    "text_0": 4421
+    "text_0": 4421,
+    "cards": 4422
   },
   "highLowTelegram": false,
   "date": "2026/11/23",
-  "updatedAt": "2026-11-23T15:46:18+08:00"
+  "updatedAt": "2026-11-23T15:46:21+08:00"
 }
