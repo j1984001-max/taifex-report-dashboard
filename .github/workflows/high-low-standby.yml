@@ -14,7 +14,7 @@ on:
 
 concurrency:
   group: taifex-high-low-standby
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   standby:

@@ -1,0 +1,63 @@
+name: TAIFEX Next Release Backup
+
+on:
+  workflow_run:
+    workflows: ["TAIFEX High-Low Fast Push"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    permissions:
+      actions: read
+      contents: read
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      date: ${{ steps.target.outputs.date }}
+      environment: ${{ steps.target.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/arm_release.py
+
+  standby:
+    needs: plan
+    if: needs.plan.outputs.date != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: ${{ needs.plan.outputs.environment }}
+    concurrency:
+      group: taifex-prearmed-${{ needs.plan.outputs.date }}
+      cancel-in-progress: false
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Wait for the target release and dispatch only missing delivery
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STANDBY_TARGET_DATE: ${{ needs.plan.outputs.date }}
+          REQUEST_MIN_INTERVAL_SECONDS: "0.35"
+          REQUEST_TIMEOUT_SECONDS: "15"
+          REQUEST_MAX_RETRIES: "1"
+        run: python3 -u .github/scripts/high_low_standby.py

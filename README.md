@@ -136,3 +136,18 @@ Render 特性：
 ## 其他雲端平台
 
 此專案也可部署到 Railway、Fly.io、Cloud Run 等支援 Docker 的平台。
+### Next-release backup
+
+After a verified same-day fast push, `TAIFEX Next Release Backup` arms the
+next trading date using a GitHub environment wait timer. Waiting does not use
+a runner. The job wakes before the release, checks official source readiness
+and Telegram receipts, then dispatches the existing dated fast push if missing.
+Cloudflare and ordinary standby schedules remain independent.
+
+For initial setup or after changing the standby holiday calendar, run
+`python3 .github/scripts/install_release_timers.py` to preview, then use
+`--apply` as a repository administrator. This creates only missing
+`taifex-wake-*h` timers. CI has no environment administration permission.
+To bootstrap after an outage, dispatch `high-low-prearm.yml` on main between
+15:00 and 18:59 Taipei after the current trading day's high-low receipt exists.
+A waiting backup is not evidence of delivery: inspect the dated delivery JSON.
